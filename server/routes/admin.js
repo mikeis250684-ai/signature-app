@@ -2,13 +2,14 @@ const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const supabase = require('../lib/supabase');
+const { PDFDocument } = require('pdf-lib');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// Auth middleware
+// Auth middleware — accepts header or query param (for iframe src)
 router.use((req, res, next) => {
-  const token = req.headers['x-admin-token'] || req.query.adminToken;
+  const token = req.headers['x-admin-token'] || req.query.adminToken || req.query.token;
   if (token !== process.env.ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -65,6 +66,27 @@ router.get('/pdf-proxy/:docId', async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline');
     res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get PDF page count and dimensions
+router.get('/pdf-meta/:docId', async (req, res) => {
+  try {
+    const { data: doc } = await supabase.from('documents').select('pdf_path').eq('id', req.params.docId).single();
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+
+    const { data: fileData } = await supabase.storage.from('pdfs').download(doc.pdf_path);
+    const bytes = Buffer.from(await fileData.arrayBuffer());
+    const pdf = await PDFDocument.load(bytes);
+    const pages = pdf.getPageCount();
+    const dims = {};
+    for (let i = 0; i < pages; i++) {
+      const { width, height } = pdf.getPage(i).getSize();
+      dims[i + 1] = { width, height };
+    }
+    res.json({ pages, dims });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

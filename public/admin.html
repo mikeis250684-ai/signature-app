@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>פאנל ניהול חתימות</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f1f5f9; color: #1e293b; }
@@ -15,8 +14,8 @@
   .login-box input { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 16px; margin-bottom: 12px; }
   .btn { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; width: 100%; }
   .btn:hover { background: #1d4ed8; }
-  .btn-secondary { background: #64748b; }
   .btn-green { background: #16a34a; }
+  .btn-green:hover { background: #15803d; }
 
   .app { display: none; min-height: 100vh; }
   .header { background: #2563eb; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -27,7 +26,6 @@
   .step.active { border-bottom-color: #2563eb; color: #2563eb; font-weight: bold; }
 
   .content { padding: 24px; max-width: 1000px; margin: 0 auto; }
-
   .panel { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   .panel h2 { margin-bottom: 16px; font-size: 18px; }
 
@@ -35,12 +33,10 @@
   .upload-zone:hover { border-color: #2563eb; background: #eff6ff; }
   .upload-zone input { display: none; }
 
-  #pdf-container { position: relative; display: inline-block; }
-  #pdf-canvas { display: block; border: 1px solid #e2e8f0; }
-  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: all; }
-
-  .field-box { position: absolute; border: 2px dashed #2563eb; background: rgba(37,99,235,0.08); cursor: move; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #2563eb; user-select: none; }
-  .field-box .delete-btn { position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  /* PDF + overlay */
+  #pdf-container { position: relative; width: 100%; }
+  #pdf-iframe { display: block; width: 100%; height: 700px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; }
+  #field-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 700px; pointer-events: all; }
 
   .signer-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; margin-bottom: 12px; align-items: center; }
   .signer-row input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
@@ -50,14 +46,12 @@
   .badge-3 { background: #fef9c3; color: #854d0e; }
 
   .link-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin-top: 16px; }
-  .link-box p { margin-bottom: 8px; }
-  .link-url { word-break: break-all; font-family: monospace; background: white; padding: 8px; border-radius: 4px; font-size: 13px; }
-  .copy-btn { background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 8px; font-size: 14px; }
+  .link-url { word-break: break-all; font-family: monospace; background: white; padding: 8px; border-radius: 4px; font-size: 13px; margin: 8px 0; }
+  .copy-btn { background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 8px; }
 
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
   .toolbar select { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
-  .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
-  .page-nav button { padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; background: white; }
+  .page-hint { background: #fef9c3; border: 1px solid #fcd34d; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
 
   .hidden { display: none !important; }
   .error { color: #ef4444; font-size: 14px; margin-top: 8px; }
@@ -66,7 +60,6 @@
 </head>
 <body>
 
-<!-- Login -->
 <div class="login-screen" id="login-screen">
   <div class="login-box">
     <h1>🔐 פאנל חתימות</h1>
@@ -77,7 +70,6 @@
   </div>
 </div>
 
-<!-- App -->
 <div class="app" id="app">
   <div class="header">
     <h1>📄 מערכת חתימה דיגיטלית</h1>
@@ -92,7 +84,7 @@
 
   <div class="content">
 
-    <!-- Step 1: Upload -->
+    <!-- Step 1 -->
     <div id="step-1">
       <div class="panel">
         <h2>העלאת קובץ PDF</h2>
@@ -107,44 +99,44 @@
       </div>
     </div>
 
-    <!-- Step 2: Field Placement -->
+    <!-- Step 2 -->
     <div id="step-2" class="hidden">
       <div class="panel">
         <h2>מיקום שדות חתימה</h2>
         <div class="toolbar">
-          <span>בחר חותם:</span>
+          <span>חותם:</span>
           <select id="active-signer">
             <option value="1">מבוטח ראשי</option>
             <option value="2">מבוטח משני</option>
             <option value="3">סוכן</option>
           </select>
+          <span>עמוד:</span>
+          <select id="current-page-select" onchange="currentPage = parseInt(this.value)">
+            <option value="1">1</option>
+          </select>
           <button class="btn" style="width:auto;padding:8px 16px" onclick="addFieldMode()">+ הוסף שדה</button>
           <span style="color:#64748b;font-size:13px" id="draw-hint"></span>
         </div>
-        <div class="page-nav">
-          <button onclick="changePage(-1)">◀ הקודם</button>
-          <span id="page-info">עמוד 1 מתוך 1</span>
-          <button onclick="changePage(1)">הבא ▶</button>
+        <div class="page-hint">
+          💡 גרור את ה-PDF לעמוד הנכון, בחר מספר עמוד למעלה, ואז לחץ "הוסף שדה" וגרור על המסמך
         </div>
-        <div id="pdf-container">
-          <canvas id="pdf-canvas"></canvas>
+        <div style="margin-top:12px" id="pdf-container">
+          <iframe id="pdf-iframe" src=""></iframe>
           <canvas id="field-overlay"></canvas>
         </div>
-        <div id="fields-summary" style="margin-top:16px"></div>
+        <div id="fields-list" style="margin-top:12px;font-size:13px;color:#64748b"></div>
         <button class="btn btn-green" style="margin-top:16px;width:auto;padding:12px 32px" onclick="goStep(3)">המשך לשלב הבא ←</button>
       </div>
     </div>
 
-    <!-- Step 3: Signers -->
+    <!-- Step 3 -->
     <div id="step-3" class="hidden">
       <div class="panel">
         <h2>פרטי החותמים</h2>
         <p style="color:#64748b;margin-bottom:16px;font-size:14px">החותמים יקבלו לינק בסדר הזה</p>
-
         <div class="signer-row" style="font-weight:bold;color:#64748b;font-size:13px">
           <span>שם מלא</span><span>מייל</span><span>טלפון</span><span></span>
         </div>
-
         <div id="signers-form">
           <div class="signer-row" data-signer="1">
             <input placeholder="שם מבוטח ראשי" data-field="name">
@@ -165,7 +157,6 @@
             <span class="signer-badge badge-3">חותם 3</span>
           </div>
         </div>
-
         <button class="btn btn-green" style="margin-top:20px;width:auto;padding:12px 32px" onclick="sendDocument()">שלח מסמך לחתימה 🚀</button>
         <p class="error hidden" id="send-error"></p>
       </div>
@@ -176,7 +167,7 @@
           <p><strong>לינק לחותם הראשון:</strong></p>
           <div class="link-url" id="first-link"></div>
           <button class="copy-btn" onclick="copyLink()">📋 העתק לינק</button>
-          <button class="copy-btn" style="background:#25d366;margin-right:8px" onclick="whatsappLink()">📱 שלח בוואטסאפ</button>
+          <button class="copy-btn" style="background:#25d366" onclick="whatsappLink()">📱 שלח בוואטסאפ</button>
         </div>
       </div>
     </div>
@@ -185,15 +176,15 @@
 </div>
 
 <script>
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
   let adminToken = '';
   let docId = '';
-  let pdfDoc = null;
+  let fields = [];
   let currentPage = 1;
-  let fields = []; // {signer_order, page, x, y, width, height}
+  let totalPages = 1;
   let isDrawing = false;
   let drawStart = null;
+  let drawMode = false;
+  let pdfPageDims = {}; // page -> {width, height} in PDF points
 
   const signerColors = { '1': '#2563eb', '2': '#16a34a', '3': '#d97706' };
   const signerNames = { '1': 'מבוטח ראשי', '2': 'מבוטח משני', '3': 'סוכן' };
@@ -226,6 +217,8 @@
     const succ = document.getElementById('upload-success');
     err.classList.add('hidden');
     succ.classList.add('hidden');
+    succ.textContent = 'מעלה...';
+    succ.classList.remove('hidden');
 
     const form = new FormData();
     form.append('pdf', file);
@@ -236,66 +229,71 @@
       body: form,
     });
     const data = await r.json();
-    if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
+    if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); succ.classList.add('hidden'); return; }
 
     docId = data.docId;
-    succ.textContent = `✅ הקובץ "${file.name}" הועלה בהצלחה`;
-    succ.classList.remove('hidden');
+    succ.textContent = `✅ "${file.name}" הועלה`;
 
-    // Load PDF via proxy with Hebrew CMap support
-    pdfDoc = await pdfjsLib.getDocument({
-      url: `/api/admin/pdf-proxy/${docId}`,
-      httpHeaders: { 'x-admin-token': adminToken },
-      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-      cMapPacked: true,
-    }).promise;
-    await renderPage(1);
+    // Load PDF info (page count) via metadata endpoint
+    const metaRes = await fetch(`/api/admin/pdf-meta/${docId}`, { headers: { 'x-admin-token': adminToken } });
+    const meta = await metaRes.json();
+    totalPages = meta.pages || 1;
+    pdfPageDims = meta.dims || {};
+
+    // Update page selector
+    const sel = document.getElementById('current-page-select');
+    sel.innerHTML = '';
+    for (let i = 1; i <= totalPages; i++) {
+      sel.innerHTML += `<option value="${i}">${i}</option>`;
+    }
+    currentPage = 1;
+
+    // Show PDF in iframe
+    const iframe = document.getElementById('pdf-iframe');
+    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}`;
+
+    // Setup overlay canvas
+    const overlay = document.getElementById('field-overlay');
+    const container = document.getElementById('pdf-container');
+    setTimeout(() => {
+      overlay.width = container.offsetWidth;
+      overlay.height = 700;
+      drawFieldsOnOverlay();
+    }, 100);
+
     goStep(2);
   }
 
-  async function renderPage(pageNum) {
-    const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 1.5 });
-    const canvas = document.getElementById('pdf-canvas');
-    const overlay = document.getElementById('field-overlay');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    overlay.width = viewport.width;
-    overlay.height = viewport.height;
-    overlay.style.width = viewport.width + 'px';
-    overlay.style.height = viewport.height + 'px';
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    currentPage = pageNum;
-    document.getElementById('page-info').textContent = `עמוד ${pageNum} מתוך ${pdfDoc.numPages}`;
-    drawFieldsOnOverlay();
+  function addFieldMode() {
+    drawMode = true;
+    document.getElementById('draw-hint').textContent = 'גרור על ה-PDF להוסיף שדה';
+    document.getElementById('field-overlay').style.cursor = 'crosshair';
   }
 
   function drawFieldsOnOverlay() {
     const overlay = document.getElementById('field-overlay');
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, overlay.width, overlay.height);
-    fields.filter(f => f.page === currentPage - 1).forEach(f => {
-      const color = signerColors[f.signer_order] || '#888';
+    fields.filter(f => f.page === currentPage).forEach(f => {
+      const color = signerColors[String(f.signer_order)] || '#888';
+      const x = f.xPct * overlay.width;
+      const y = f.yPct * overlay.height;
+      const w = f.wPct * overlay.width;
+      const h = f.hPct * overlay.height;
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 3]);
-      ctx.strokeRect(f.x, f.y, f.width, f.height);
+      ctx.strokeRect(x, y, w, h);
       ctx.fillStyle = color + '22';
-      ctx.fillRect(f.x, f.y, f.width, f.height);
+      ctx.fillRect(x, y, w, h);
       ctx.fillStyle = color;
-      ctx.font = '13px Arial';
-      ctx.fillText(signerNames[f.signer_order], f.x + 4, f.y + 16);
+      ctx.font = 'bold 13px Arial';
+      ctx.fillText(signerNames[String(f.signer_order)], x + 4, y + 18);
     });
   }
 
-  let drawMode = false;
-  function addFieldMode() {
-    drawMode = true;
-    document.getElementById('draw-hint').textContent = 'גרור על ה-PDF להוספת שדה';
-    document.getElementById('field-overlay').style.cursor = 'crosshair';
-  }
-
   const overlay = document.getElementById('field-overlay');
+
   overlay.addEventListener('mousedown', e => {
     if (!drawMode) return;
     const rect = overlay.getBoundingClientRect();
@@ -310,8 +308,7 @@
     drawFieldsOnOverlay();
     const ctx = overlay.getContext('2d');
     const signer = document.getElementById('active-signer').value;
-    const color = signerColors[signer];
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = signerColors[signer];
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 3]);
     ctx.strokeRect(drawStart.x, drawStart.y, curr.x - drawStart.x, curr.y - drawStart.y);
@@ -325,28 +322,26 @@
     const h = end.y - drawStart.y;
     if (Math.abs(w) > 20 && Math.abs(h) > 15) {
       const signer = parseInt(document.getElementById('active-signer').value);
+      const ow = overlay.width, oh = overlay.height;
       fields.push({
         signer_order: signer,
-        page: currentPage - 1,
-        x: Math.min(drawStart.x, end.x),
-        y: Math.min(drawStart.y, end.y),
-        width: Math.abs(w),
-        height: Math.abs(h),
+        page: currentPage,
+        xPct: Math.min(drawStart.x, end.x) / ow,
+        yPct: Math.min(drawStart.y, end.y) / oh,
+        wPct: Math.abs(w) / ow,
+        hPct: Math.abs(h) / oh,
       });
       drawFieldsOnOverlay();
+      updateFieldsList();
     }
-    isDrawing = false;
-    drawStart = null;
-    drawMode = false;
+    isDrawing = false; drawStart = null; drawMode = false;
     document.getElementById('draw-hint').textContent = '';
     overlay.style.cursor = 'default';
   });
 
-  function changePage(dir) {
-    if (!pdfDoc) return;
-    const next = currentPage + dir;
-    if (next < 1 || next > pdfDoc.numPages) return;
-    renderPage(next);
+  function updateFieldsList() {
+    const el = document.getElementById('fields-list');
+    el.textContent = `שדות שהוגדרו: ${fields.length} | ${fields.map(f => `${signerNames[String(f.signer_order)]} (עמוד ${f.page})`).join(', ')}`;
   }
 
   async function sendDocument() {
@@ -357,22 +352,34 @@
     const signers = [];
     rows.forEach(row => {
       const name = row.querySelector('[data-field="name"]').value.trim();
-      if (name) {
-        signers.push({
-          name,
-          email: row.querySelector('[data-field="email"]').value.trim(),
-          phone: row.querySelector('[data-field="phone"]').value.trim(),
-        });
-      }
+      if (name) signers.push({
+        name,
+        email: row.querySelector('[data-field="email"]').value.trim(),
+        phone: row.querySelector('[data-field="phone"]').value.trim(),
+      });
     });
 
     if (signers.length === 0) { err.textContent = 'הזן לפחות חותם אחד'; err.classList.remove('hidden'); return; }
     if (fields.length === 0) { err.textContent = 'הוסף לפחות שדה חתימה אחד'; err.classList.remove('hidden'); return; }
 
+    // Convert percentage coords to PDF points using page dimensions
+    const convertedFields = fields.map(f => {
+      const dims = pdfPageDims[f.page] || { width: 595, height: 842 };
+      return {
+        document_id: docId,
+        signer_order: f.signer_order,
+        page: f.page - 1, // 0-indexed for pdf-lib
+        x: f.xPct * dims.width,
+        y: f.yPct * dims.height,
+        width: f.wPct * dims.width,
+        height: f.hPct * dims.height,
+      };
+    });
+
     const r = await fetch(`/api/admin/send/${docId}`, {
       method: 'POST',
       headers: { 'x-admin-token': adminToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signers, fields }),
+      body: JSON.stringify({ signers, fields: convertedFields }),
     });
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
@@ -388,8 +395,7 @@
 
   function whatsappLink() {
     const link = document.getElementById('first-link').textContent;
-    const msg = encodeURIComponent(link);
-    window.open(`https://wa.me/?text=${msg}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(link)}`, '_blank');
   }
 </script>
 </body>
