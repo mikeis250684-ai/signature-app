@@ -36,10 +36,11 @@
   .upload-zone:hover { border-color: #2563eb; background: #eff6ff; }
   .upload-zone input { display: none; }
 
-  /* PDF canvas */
-  #pdf-container { position: relative; display: inline-block; border: 1px solid #e2e8f0; }
-  #pdf-canvas { display: block; }
-  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
+  /* PDF display */
+  #pdf-container { position: relative; width: 100%; }
+  #pdf-iframe { display: block; width: 100%; height: 780px; border: 1px solid #e2e8f0; border-radius: 4px; }
+  #pdf-canvas { display: none; }
+  #field-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 780px; pointer-events: none; }
   #field-overlay.draw-active { pointer-events: all; cursor: crosshair; }
 
   .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
@@ -152,10 +153,14 @@
             <span id="page-info" style="font-size:14px">עמוד 1 מתוך 1</span>
             <button onclick="changePage(1)">הבא ▶</button>
           </div>
-          <div id="pdf-container">
-            <canvas id="pdf-canvas"></canvas>
-            <canvas id="field-overlay"></canvas>
-          </div>
+          <p class="hint-text" id="page-instruction" style="margin-bottom:8px">
+          💡 בחר עמוד ← לחץ "הוסף שדה" ← גרור על המסמך לסימון מיקום
+        </p>
+        <div id="pdf-container">
+          <iframe id="pdf-iframe" src=""></iframe>
+          <canvas id="pdf-canvas"></canvas>
+          <canvas id="field-overlay"></canvas>
+        </div>
           <div id="fields-list" style="margin-top:10px;font-size:13px"></div>
           <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
             <button class="btn btn-sm btn-outline" onclick="clearFields()">נקה שדות</button>
@@ -217,12 +222,12 @@
 <script>
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-  const SCALE = 1.5;
   let adminToken = '';
   let docId = '';
-  let pdfDoc = null;
+  let pdfDoc = null;       // PDF.js doc (for dimensions only, not rendered)
+  let pageDims = {};       // pageNum -> {width, height} in PDF points
   let currentPage = 1;
-  let fields = []; // {signer_order, page(0-indexed), x, y, width, height} in PDF points
+  let fields = [];         // {signer_order, page(0-indexed), x, y, width, height} in PDF points
   let isDrawing = false, drawStart = null, drawMode = false;
 
   const signerColors = { 1: '#2563eb', 2: '#16a34a', 3: '#d97706' };
@@ -272,40 +277,50 @@
     fields = [];
     succ.textContent = `✅ "${file.name}" הועלה`;
 
-    // Load PDF with PDF.js
+    // Load PDF.js silently — just for page dimensions
     pdfDoc = await pdfjsLib.getDocument({
       url: `/api/admin/pdf-proxy/${docId}?token=${adminToken}`,
       cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
       cMapPacked: true,
     }).promise;
 
-    await renderPage(1);
+    pageDims = {};
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const pg = await pdfDoc.getPage(i);
+      const vp = pg.getViewport({ scale: 1 });
+      pageDims[i] = { width: vp.width, height: vp.height };
+    }
+
+    // Show PDF in iframe (correct Hebrew rendering)
+    document.getElementById('pdf-iframe').src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}`;
+
+    // Setup overlay canvas
+    setTimeout(() => {
+      const container = document.getElementById('pdf-container');
+      const overlay = document.getElementById('field-overlay');
+      overlay.width = container.offsetWidth;
+      overlay.height = 780;
+      drawFieldsOnOverlay();
+    }, 200);
+
+    currentPage = 1;
+    document.getElementById('page-info').textContent = `עמוד 1 מתוך ${pdfDoc.numPages}`;
     goStep(2);
   }
 
-  /* ── Render ── */
-  async function renderPage(pageNum) {
-    if (!pdfDoc) return;
-    const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: SCALE });
-    const canvas = document.getElementById('pdf-canvas');
-    const overlay = document.getElementById('field-overlay');
-    canvas.width = viewport.width; canvas.height = viewport.height;
-    overlay.width = viewport.width; overlay.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    currentPage = pageNum;
-    document.getElementById('page-info').textContent = `עמוד ${pageNum} מתוך ${pdfDoc.numPages}`;
-    drawFieldsOnOverlay();
-  }
-
+  /* ── Draw fields on overlay ── */
   function drawFieldsOnOverlay() {
     const overlay = document.getElementById('field-overlay');
+    if (!overlay.width) return;
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, overlay.width, overlay.height);
-    // page in fields is 0-indexed, currentPage is 1-indexed
+
+    const dims = pageDims[currentPage] || { width: 595, height: 842 };
+    const scale = overlay.width / dims.width;
+
     fields.filter(f => f.page === currentPage - 1).forEach(f => {
       const color = signerColors[f.signer_order] || '#888';
-      const x = f.x * SCALE, y = f.y * SCALE, w = f.width * SCALE, h = f.height * SCALE;
+      const x = f.x * scale, y = f.y * scale, w = f.width * scale, h = f.height * scale;
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6,3]);
       ctx.strokeRect(x, y, w, h);
       ctx.fillStyle = color + '22'; ctx.fillRect(x, y, w, h);
@@ -364,14 +379,15 @@
     const w = end.x - drawStart.x, h = end.y - drawStart.y;
     if (Math.abs(w) > 20 && Math.abs(h) > 15) {
       const signer = parseInt(document.getElementById('active-signer').value);
-      // Store in PDF points (divide by SCALE)
+      const dims = pageDims[currentPage] || { width: 595, height: 842 };
+      const scale = overlay.width / dims.width;
       fields.push({
         signer_order: signer,
         page: currentPage - 1,
-        x: Math.min(drawStart.x, end.x) / SCALE,
-        y: Math.min(drawStart.y, end.y) / SCALE,
-        width: Math.abs(w) / SCALE,
-        height: Math.abs(h) / SCALE,
+        x: Math.min(drawStart.x, end.x) / scale,
+        y: Math.min(drawStart.y, end.y) / scale,
+        width: Math.abs(w) / scale,
+        height: Math.abs(h) / scale,
       });
       drawFieldsOnOverlay();
     }
@@ -384,7 +400,11 @@
     if (!pdfDoc) return;
     const next = currentPage + dir;
     if (next < 1 || next > pdfDoc.numPages) return;
-    renderPage(next);
+    currentPage = next;
+    document.getElementById('page-info').textContent = `עמוד ${next} מתוך ${pdfDoc.numPages}`;
+    // Navigate iframe to the correct page
+    document.getElementById('pdf-iframe').src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${next}`;
+    drawFieldsOnOverlay();
   }
 
   /* ── Send ── */
@@ -433,21 +453,37 @@
         <td>${d.name}</td>
         <td><span class="status-${d.status}">${statusLabels[d.status] || d.status}</span></td>
         <td>${new Date(d.created_at).toLocaleDateString('he-IL')}</td>
-        <td>
-          <button class="btn btn-sm btn-outline" onclick="saveDoc('${d.id}','${d.name}')">💾 שמור</button>
+        <td style="display:flex;gap:6px;flex-wrap:wrap">
+          ${d.status === 'completed'
+            ? `<button class="btn btn-sm btn-green" onclick="downloadDoc('${d.id}')">⬇ הורד PDF</button>`
+            : `<span style="font-size:12px;color:#94a3b8">ממתין לחתימה</span>`}
+          <button class="btn btn-sm" style="background:#ef4444;color:white;border:none" onclick="deleteDoc('${d.id}','${d.name}')">🗑 מחק</button>
         </td>
       </tr>
     `).join('');
     document.getElementById('docs-table').classList.remove('hidden');
   }
 
-  function saveDoc(id, name) {
-    const saved = JSON.parse(localStorage.getItem('savedDocs') || '[]');
-    if (!saved.find(d => d.id === id)) {
-      saved.push({ id, name, savedAt: new Date().toISOString() });
-      localStorage.setItem('savedDocs', JSON.stringify(saved));
+  function downloadDoc(id) {
+    window.open(`/api/admin/download/${id}?token=${adminToken}`, '_blank');
+  }
+
+  async function deleteDoc(id, name) {
+    if (!confirm(`למחוק את "${name}"?\n\nהקובץ ימחק לצמיתות — פעולה זו אינה הפיכה.`)) return;
+    try {
+      const r = await fetch(`/api/admin/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': adminToken }
+      });
+      if (r.ok) {
+        loadDocs();
+      } else {
+        const data = await r.json();
+        alert('שגיאה: ' + (data.error || 'לא ניתן למחוק'));
+      }
+    } catch (e) {
+      alert('שגיאה: ' + e.message);
     }
-    alert(`✅ "${name}" נשמר ברשימה שלך`);
   }
 </script>
 </body>

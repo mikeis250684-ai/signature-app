@@ -138,4 +138,59 @@ router.get('/documents', async (req, res) => {
   res.json(data);
 });
 
+// Download signed PDF
+router.get('/download/:id', async (req, res) => {
+  try {
+    const { data: doc, error } = await supabase
+      .from('documents')
+      .select('name, signed_pdf_path')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !doc) return res.status(404).json({ error: 'מסמך לא נמצא' });
+    if (!doc.signed_pdf_path) return res.status(404).json({ error: 'המסמך עוד לא חתום על ידי כולם' });
+
+    const { data: fileData, error: dlErr } = await supabase.storage
+      .from('pdfs')
+      .download(doc.signed_pdf_path);
+
+    if (dlErr) throw dlErr;
+
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    const safeName = doc.name.replace(/[^\w֐-׿\s.-]/g, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(safeName + '_חתום.pdf')}`);
+    res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete document (+ files from storage)
+router.delete('/documents/:id', async (req, res) => {
+  try {
+    const { data: doc, error } = await supabase
+      .from('documents')
+      .select('pdf_path, signed_pdf_path')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !doc) return res.status(404).json({ error: 'מסמך לא נמצא' });
+
+    // Delete files from storage
+    const toDelete = [doc.pdf_path].filter(Boolean);
+    if (doc.signed_pdf_path) toDelete.push(doc.signed_pdf_path);
+    if (toDelete.length) await supabase.storage.from('pdfs').remove(toDelete);
+
+    // Delete DB record (cascades to signers, fields, signatures)
+    await supabase.from('documents').delete().eq('id', req.params.id);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
