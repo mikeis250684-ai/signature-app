@@ -40,8 +40,23 @@
   #pdf-container { position: relative; width: 100%; overflow: hidden; }
   #pdf-iframe { display: block; width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
   #pdf-canvas { display: none; }
-  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
+  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 3; }
   #field-overlay.draw-active { pointer-events: all; cursor: crosshair; }
+
+  /* Field markers — HTML divs so they survive scrolling (canvas clears on scroll) */
+  .field-div {
+    position: absolute; box-sizing: border-box; z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .field-lbl {
+    font-size: 11px; font-weight: bold; text-align: center; pointer-events: none;
+  }
+  .field-del {
+    position: absolute; top: -9px; right: -9px;
+    width: 18px; height: 18px; border: none; border-radius: 50%;
+    color: white; cursor: pointer; font-size: 11px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
 
   .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   .page-nav button { padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; background: white; }
@@ -323,27 +338,59 @@
     drawFieldsOnOverlay();
   }
 
-  /* ── Draw fields on overlay ── */
-  function drawFieldsOnOverlay() {
+  /* ── Render stored fields as HTML divs (survive scrolling) ── */
+  function renderFieldDivs() {
+    const container = document.getElementById('pdf-container');
+    container.querySelectorAll('.field-div').forEach(el => el.remove());
+
     const overlay = document.getElementById('field-overlay');
     if (!overlay.width) return;
-    const ctx = overlay.getContext('2d');
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-    const dims = pageDims[currentPage] || { width: 595, height: 842 };
+    const dims  = pageDims[currentPage] || { width: 595, height: 842 };
     const scale = overlay.width / dims.width;
 
     fields.filter(f => f.page === currentPage - 1).forEach(f => {
       const color = signerColors[f.signer_order] || '#888';
-      const x = f.x * scale, y = f.y * scale, w = f.width * scale, h = f.height * scale;
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6,3]);
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = color + '22'; ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = color; ctx.font = 'bold 13px Arial';
-      ctx.fillText(signerNames[f.signer_order], x + 4, y + 18);
+      const el  = document.createElement('div');
+      el.className = 'field-div';
+      el.style.left       = (f.x * scale) + 'px';
+      el.style.top        = (f.y * scale) + 'px';
+      el.style.width      = (f.width  * scale) + 'px';
+      el.style.height     = (f.height * scale) + 'px';
+      el.style.border     = `2px dashed ${color}`;
+      el.style.background = color + '22';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'field-lbl';
+      lbl.style.color = color;
+      lbl.textContent = signerNames[f.signer_order];
+      el.appendChild(lbl);
+
+      const del = document.createElement('button');
+      del.className    = 'field-del';
+      del.style.background = color;
+      del.innerHTML    = '✕';
+      del.title        = 'מחק שדה';
+      del.onclick = e => {
+        e.stopPropagation();
+        const idx = fields.indexOf(f);
+        if (idx > -1) fields.splice(idx, 1);
+        el.remove();
+        updateFieldsList();
+      };
+      el.appendChild(del);
+      container.appendChild(el);
     });
     updateFieldsList();
   }
+
+  /* ── Canvas: used ONLY for temp drag rectangle (cleared after mouseup) ── */
+  function clearDrawCanvas() {
+    const ov = document.getElementById('field-overlay');
+    ov.getContext('2d').clearRect(0, 0, ov.width, ov.height);
+  }
+
+  // Legacy alias so any remaining calls don't break
+  function drawFieldsOnOverlay() { renderFieldDivs(); clearDrawCanvas(); }
 
   function updateFieldsList() {
     const el = document.getElementById('fields-list');
@@ -360,7 +407,12 @@
     document.getElementById('field-overlay').classList.add('draw-active');
   }
 
-  function clearFields() { fields = []; drawFieldsOnOverlay(); }
+  function clearFields() {
+    fields = [];
+    document.getElementById('pdf-container').querySelectorAll('.field-div').forEach(el => el.remove());
+    clearDrawCanvas();
+    updateFieldsList();
+  }
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
@@ -381,31 +433,34 @@
     if (!isDrawing || !drawStart) return;
     const rect = overlay.getBoundingClientRect();
     const curr = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    drawFieldsOnOverlay();
+    // Only draw the live drag rectangle — stored fields are persistent divs
     const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
     ctx.strokeStyle = signerColors[parseInt(document.getElementById('active-signer').value)];
-    ctx.lineWidth = 2; ctx.setLineDash([6,3]);
+    ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
     ctx.strokeRect(drawStart.x, drawStart.y, curr.x - drawStart.x, curr.y - drawStart.y);
   });
   overlay.addEventListener('mouseup', e => {
     if (!isDrawing || !drawStart) return;
     const rect = overlay.getBoundingClientRect();
-    const end = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const end  = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const w = end.x - drawStart.x, h = end.y - drawStart.y;
     if (Math.abs(w) > 20 && Math.abs(h) > 15) {
       const signer = parseInt(document.getElementById('active-signer').value);
-      const dims = pageDims[currentPage] || { width: 595, height: 842 };
-      const scale = overlay.width / dims.width;
+      const dims   = pageDims[currentPage] || { width: 595, height: 842 };
+      const scale  = overlay.width / dims.width;
       fields.push({
         signer_order: signer,
-        page: currentPage - 1,
-        x: Math.min(drawStart.x, end.x) / scale,
-        y: Math.min(drawStart.y, end.y) / scale,
-        width: Math.abs(w) / scale,
+        page:   currentPage - 1,
+        x:      Math.min(drawStart.x, end.x) / scale,
+        y:      Math.min(drawStart.y, end.y) / scale,
+        width:  Math.abs(w) / scale,
         height: Math.abs(h) / scale,
       });
-      drawFieldsOnOverlay();
     }
+    // Clear temp drag rect, show field as persistent div
+    clearDrawCanvas();
+    renderFieldDivs();
     isDrawing = false; drawStart = null; drawMode = false;
     document.getElementById('draw-hint').textContent = '';
     overlay.classList.remove('draw-active');
