@@ -4,7 +4,12 @@ const supabase = require('../lib/supabase');
 const { burnSignatures } = require('../lib/pdf');
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+async function sendEmail(to, subject, html) {
+  if (!resend) { console.log('Email skipped (no RESEND_API_KEY):', subject); return; }
+  await resend.emails.send({ from: 'חתימות <noreply@mkt.co.il>', to, subject, html });
+}
 
 // Get signer info + document by token
 router.get('/info', async (req, res) => {
@@ -84,19 +89,14 @@ router.post('/submit', async (req, res) => {
       // Send link to next signer
       const link = `${process.env.APP_URL}/sign.html?token=${nextSigner.token}`;
       if (nextSigner.email) {
-        await resend.emails.send({
-          from: 'חתימות <noreply@yourdomain.com>',
-          to: nextSigner.email,
-          subject: `נדרשת חתימתך על: ${signer.documents.name}`,
-          html: `
-            <div dir="rtl" style="font-family: Arial; font-size: 16px;">
-              <p>שלום ${nextSigner.name},</p>
-              <p>מסמך <strong>${signer.documents.name}</strong> ממתין לחתימתך.</p>
-              <p><a href="${link}" style="background:#2563eb;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;">לחץ כאן לחתימה</a></p>
-              <p>הלינק תקף ל-30 יום.</p>
-            </div>
-          `,
-        });
+        await sendEmail(nextSigner.email, `נדרשת חתימתך על: ${signer.documents.name}`, `
+          <div dir="rtl" style="font-family: Arial; font-size: 16px;">
+            <p>שלום ${nextSigner.name},</p>
+            <p>מסמך <strong>${signer.documents.name}</strong> ממתין לחתימתך.</p>
+            <p><a href="${link}" style="background:#2563eb;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;">לחץ כאן לחתימה</a></p>
+            <p>הלינק תקף ל-30 יום.</p>
+          </div>
+        `);
       }
       res.json({ status: 'signed', nextSignerName: nextSigner.name, link });
     } else {
@@ -142,17 +142,12 @@ async function finalizePdf(documentId) {
 
   // Notify admin
   const { data: urlData } = await supabase.storage.from('pdfs').createSignedUrl(signedPath, 60 * 60 * 24 * 7);
-  await resend.emails.send({
-    from: 'חתימות <noreply@yourdomain.com>',
-    to: process.env.ADMIN_EMAIL,
-    subject: `✅ המסמך "${doc.name}" נחתם על ידי כולם`,
-    html: `
-      <div dir="rtl" style="font-family: Arial; font-size: 16px;">
-        <p>כל החותמים השלימו את חתימתם.</p>
-        <p><a href="${urlData.signedUrl}">הורד את המסמך החתום</a></p>
-      </div>
-    `,
-  });
+  await sendEmail(process.env.ADMIN_EMAIL, `✅ המסמך "${doc.name}" נחתם על ידי כולם`, `
+    <div dir="rtl" style="font-family: Arial; font-size: 16px;">
+      <p>כל החותמים השלימו את חתימתם.</p>
+      <p><a href="${urlData.signedUrl}">הורד את המסמך החתום</a></p>
+    </div>
+  `);
 }
 
 module.exports = router;
