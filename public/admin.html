@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>פאנל ניהול חתימות</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f1f5f9; color: #1e293b; }
+
+  .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); width: 340px; text-align: center; }
+  .login-box h1 { margin-bottom: 24px; color: #2563eb; }
+  .login-box input { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 16px; margin-bottom: 12px; }
+  .btn { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; width: 100%; }
+  .btn:hover { background: #1d4ed8; }
+  .btn-secondary { background: #64748b; }
+  .btn-green { background: #16a34a; }
+
+  .app { display: none; min-height: 100vh; }
+  .header { background: #2563eb; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 20px; }
+
+  .steps { display: flex; background: white; border-bottom: 1px solid #e2e8f0; }
+  .step { padding: 16px 24px; cursor: pointer; border-bottom: 3px solid transparent; color: #64748b; }
+  .step.active { border-bottom-color: #2563eb; color: #2563eb; font-weight: bold; }
+
+  .content { padding: 24px; max-width: 1000px; margin: 0 auto; }
+
+  .panel { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .panel h2 { margin-bottom: 16px; font-size: 18px; }
+
+  .upload-zone { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .upload-zone:hover { border-color: #2563eb; background: #eff6ff; }
+  .upload-zone input { display: none; }
+
+  #pdf-container { position: relative; display: inline-block; }
+  #pdf-canvas { display: block; border: 1px solid #e2e8f0; }
+  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: all; }
+
+  .field-box { position: absolute; border: 2px dashed #2563eb; background: rgba(37,99,235,0.08); cursor: move; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #2563eb; user-select: none; }
+  .field-box .delete-btn { position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+
+  .signer-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; margin-bottom: 12px; align-items: center; }
+  .signer-row input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+  .signer-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; }
+  .badge-1 { background: #dbeafe; color: #1d4ed8; }
+  .badge-2 { background: #dcfce7; color: #15803d; }
+  .badge-3 { background: #fef9c3; color: #854d0e; }
+
+  .link-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin-top: 16px; }
+  .link-box p { margin-bottom: 8px; }
+  .link-url { word-break: break-all; font-family: monospace; background: white; padding: 8px; border-radius: 4px; font-size: 13px; }
+  .copy-btn { background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 8px; font-size: 14px; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .toolbar select { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+  .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .page-nav button { padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; background: white; }
+
+  .hidden { display: none !important; }
+  .error { color: #ef4444; font-size: 14px; margin-top: 8px; }
+  .success { color: #16a34a; font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <h1>🔐 פאנל חתימות</h1>
+    <p style="color:#64748b;margin-bottom:24px;">מערכת חתימה דיגיטלית</p>
+    <input type="password" id="password-input" placeholder="סיסמת גישה" onkeydown="if(event.key==='Enter')login()">
+    <button class="btn" onclick="login()">כניסה</button>
+    <p class="error hidden" id="login-error">סיסמה שגויה</p>
+  </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app">
+  <div class="header">
+    <h1>📄 מערכת חתימה דיגיטלית</h1>
+    <span style="font-size:14px;opacity:0.8">מיכאל קרויטרו</span>
+  </div>
+
+  <div class="steps">
+    <div class="step active" id="step-tab-1" onclick="goStep(1)">① העלאת מסמך</div>
+    <div class="step" id="step-tab-2" onclick="goStep(2)">② מיקום שדות</div>
+    <div class="step" id="step-tab-3" onclick="goStep(3)">③ חותמים ושליחה</div>
+  </div>
+
+  <div class="content">
+
+    <!-- Step 1: Upload -->
+    <div id="step-1">
+      <div class="panel">
+        <h2>העלאת קובץ PDF</h2>
+        <div class="upload-zone" onclick="document.getElementById('pdf-file').click()">
+          <input type="file" id="pdf-file" accept="application/pdf" onchange="uploadPdf(this)">
+          <div style="font-size:48px">📤</div>
+          <p style="font-size:18px;margin-top:8px">לחץ לבחירת קובץ PDF</p>
+          <p style="color:#64748b;font-size:14px">עד 20MB</p>
+        </div>
+        <p class="error hidden" id="upload-error"></p>
+        <p class="success hidden" id="upload-success"></p>
+      </div>
+    </div>
+
+    <!-- Step 2: Field Placement -->
+    <div id="step-2" class="hidden">
+      <div class="panel">
+        <h2>מיקום שדות חתימה</h2>
+        <div class="toolbar">
+          <span>בחר חותם:</span>
+          <select id="active-signer">
+            <option value="1">מבוטח ראשי</option>
+            <option value="2">מבוטח משני</option>
+            <option value="3">סוכן</option>
+          </select>
+          <button class="btn" style="width:auto;padding:8px 16px" onclick="addFieldMode()">+ הוסף שדה</button>
+          <span style="color:#64748b;font-size:13px" id="draw-hint"></span>
+        </div>
+        <div class="page-nav">
+          <button onclick="changePage(-1)">◀ הקודם</button>
+          <span id="page-info">עמוד 1 מתוך 1</span>
+          <button onclick="changePage(1)">הבא ▶</button>
+        </div>
+        <div id="pdf-container">
+          <canvas id="pdf-canvas"></canvas>
+          <canvas id="field-overlay"></canvas>
+        </div>
+        <div id="fields-summary" style="margin-top:16px"></div>
+        <button class="btn btn-green" style="margin-top:16px;width:auto;padding:12px 32px" onclick="goStep(3)">המשך לשלב הבא ←</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Signers -->
+    <div id="step-3" class="hidden">
+      <div class="panel">
+        <h2>פרטי החותמים</h2>
+        <p style="color:#64748b;margin-bottom:16px;font-size:14px">החותמים יקבלו לינק בסדר הזה</p>
+
+        <div class="signer-row" style="font-weight:bold;color:#64748b;font-size:13px">
+          <span>שם מלא</span><span>מייל</span><span>טלפון</span><span></span>
+        </div>
+
+        <div id="signers-form">
+          <div class="signer-row" data-signer="1">
+            <input placeholder="שם מבוטח ראשי" data-field="name">
+            <input placeholder="מייל" type="email" data-field="email">
+            <input placeholder="טלפון" data-field="phone">
+            <span class="signer-badge badge-1">חותם 1</span>
+          </div>
+          <div class="signer-row" data-signer="2">
+            <input placeholder="שם מבוטח משני (אופציונלי)" data-field="name">
+            <input placeholder="מייל" type="email" data-field="email">
+            <input placeholder="טלפון" data-field="phone">
+            <span class="signer-badge badge-2">חותם 2</span>
+          </div>
+          <div class="signer-row" data-signer="3">
+            <input placeholder="שם הסוכן" data-field="name" value="מיכאל קרויטרו">
+            <input placeholder="מייל" type="email" data-field="email">
+            <input placeholder="טלפון" data-field="phone">
+            <span class="signer-badge badge-3">חותם 3</span>
+          </div>
+        </div>
+
+        <button class="btn btn-green" style="margin-top:20px;width:auto;padding:12px 32px" onclick="sendDocument()">שלח מסמך לחתימה 🚀</button>
+        <p class="error hidden" id="send-error"></p>
+      </div>
+
+      <div class="panel hidden" id="link-result">
+        <h2>✅ המסמך נשלח!</h2>
+        <div class="link-box">
+          <p><strong>לינק לחותם הראשון:</strong></p>
+          <div class="link-url" id="first-link"></div>
+          <button class="copy-btn" onclick="copyLink()">📋 העתק לינק</button>
+          <button class="copy-btn" style="background:#25d366;margin-right:8px" onclick="whatsappLink()">📱 שלח בוואטסאפ</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  let adminToken = '';
+  let docId = '';
+  let pdfDoc = null;
+  let currentPage = 1;
+  let fields = []; // {signer_order, page, x, y, width, height}
+  let isDrawing = false;
+  let drawStart = null;
+
+  const signerColors = { '1': '#2563eb', '2': '#16a34a', '3': '#d97706' };
+  const signerNames = { '1': 'מבוטח ראשי', '2': 'מבוטח משני', '3': 'סוכן' };
+
+  function login() {
+    const pw = document.getElementById('password-input').value;
+    adminToken = pw;
+    fetch('/api/admin/documents', { headers: { 'x-admin-token': pw } })
+      .then(r => {
+        if (r.ok) {
+          document.getElementById('login-screen').style.display = 'none';
+          document.getElementById('app').style.display = 'block';
+        } else {
+          document.getElementById('login-error').classList.remove('hidden');
+        }
+      });
+  }
+
+  function goStep(n) {
+    [1,2,3].forEach(i => {
+      document.getElementById(`step-${i}`).classList.toggle('hidden', i !== n);
+      document.getElementById(`step-tab-${i}`).classList.toggle('active', i === n);
+    });
+  }
+
+  async function uploadPdf(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const err = document.getElementById('upload-error');
+    const succ = document.getElementById('upload-success');
+    err.classList.add('hidden');
+    succ.classList.add('hidden');
+
+    const form = new FormData();
+    form.append('pdf', file);
+
+    const r = await fetch('/api/admin/upload', {
+      method: 'POST',
+      headers: { 'x-admin-token': adminToken },
+      body: form,
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
+
+    docId = data.docId;
+    succ.textContent = `✅ הקובץ "${file.name}" הועלה בהצלחה`;
+    succ.classList.remove('hidden');
+
+    // Load PDF for display
+    const urlRes = await fetch(`/api/admin/pdf-url/${docId}`, { headers: { 'x-admin-token': adminToken } });
+    const { url } = await urlRes.json();
+    pdfDoc = await pdfjsLib.getDocument(url).promise;
+    await renderPage(1);
+    goStep(2);
+  }
+
+  async function renderPage(pageNum) {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.getElementById('pdf-canvas');
+    const overlay = document.getElementById('field-overlay');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    overlay.width = viewport.width;
+    overlay.height = viewport.height;
+    overlay.style.width = viewport.width + 'px';
+    overlay.style.height = viewport.height + 'px';
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    currentPage = pageNum;
+    document.getElementById('page-info').textContent = `עמוד ${pageNum} מתוך ${pdfDoc.numPages}`;
+    drawFieldsOnOverlay();
+  }
+
+  function drawFieldsOnOverlay() {
+    const overlay = document.getElementById('field-overlay');
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    fields.filter(f => f.page === currentPage - 1).forEach(f => {
+      const color = signerColors[f.signer_order] || '#888';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(f.x, f.y, f.width, f.height);
+      ctx.fillStyle = color + '22';
+      ctx.fillRect(f.x, f.y, f.width, f.height);
+      ctx.fillStyle = color;
+      ctx.font = '13px Arial';
+      ctx.fillText(signerNames[f.signer_order], f.x + 4, f.y + 16);
+    });
+  }
+
+  let drawMode = false;
+  function addFieldMode() {
+    drawMode = true;
+    document.getElementById('draw-hint').textContent = 'גרור על ה-PDF להוספת שדה';
+    document.getElementById('field-overlay').style.cursor = 'crosshair';
+  }
+
+  const overlay = document.getElementById('field-overlay');
+  overlay.addEventListener('mousedown', e => {
+    if (!drawMode) return;
+    const rect = overlay.getBoundingClientRect();
+    drawStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    isDrawing = true;
+  });
+
+  overlay.addEventListener('mousemove', e => {
+    if (!isDrawing || !drawStart) return;
+    const rect = overlay.getBoundingClientRect();
+    const curr = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    drawFieldsOnOverlay();
+    const ctx = overlay.getContext('2d');
+    const signer = document.getElementById('active-signer').value;
+    const color = signerColors[signer];
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.strokeRect(drawStart.x, drawStart.y, curr.x - drawStart.x, curr.y - drawStart.y);
+  });
+
+  overlay.addEventListener('mouseup', e => {
+    if (!isDrawing || !drawStart) return;
+    const rect = overlay.getBoundingClientRect();
+    const end = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const w = end.x - drawStart.x;
+    const h = end.y - drawStart.y;
+    if (Math.abs(w) > 20 && Math.abs(h) > 15) {
+      const signer = parseInt(document.getElementById('active-signer').value);
+      fields.push({
+        signer_order: signer,
+        page: currentPage - 1,
+        x: Math.min(drawStart.x, end.x),
+        y: Math.min(drawStart.y, end.y),
+        width: Math.abs(w),
+        height: Math.abs(h),
+      });
+      drawFieldsOnOverlay();
+    }
+    isDrawing = false;
+    drawStart = null;
+    drawMode = false;
+    document.getElementById('draw-hint').textContent = '';
+    overlay.style.cursor = 'default';
+  });
+
+  function changePage(dir) {
+    if (!pdfDoc) return;
+    const next = currentPage + dir;
+    if (next < 1 || next > pdfDoc.numPages) return;
+    renderPage(next);
+  }
+
+  async function sendDocument() {
+    const err = document.getElementById('send-error');
+    err.classList.add('hidden');
+
+    const rows = document.querySelectorAll('#signers-form .signer-row');
+    const signers = [];
+    rows.forEach(row => {
+      const name = row.querySelector('[data-field="name"]').value.trim();
+      if (name) {
+        signers.push({
+          name,
+          email: row.querySelector('[data-field="email"]').value.trim(),
+          phone: row.querySelector('[data-field="phone"]').value.trim(),
+        });
+      }
+    });
+
+    if (signers.length === 0) { err.textContent = 'הזן לפחות חותם אחד'; err.classList.remove('hidden'); return; }
+    if (fields.length === 0) { err.textContent = 'הוסף לפחות שדה חתימה אחד'; err.classList.remove('hidden'); return; }
+
+    const r = await fetch(`/api/admin/send/${docId}`, {
+      method: 'POST',
+      headers: { 'x-admin-token': adminToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signers, fields }),
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
+
+    document.getElementById('first-link').textContent = data.link;
+    document.getElementById('link-result').classList.remove('hidden');
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(document.getElementById('first-link').textContent);
+    alert('הלינק הועתק!');
+  }
+
+  function whatsappLink() {
+    const link = document.getElementById('first-link').textContent;
+    const msg = encodeURIComponent(`שלום, ממתין לחתימתך על מסמך ביטוח.\nלחץ כאן לחתימה: ${link}`);
+    window.open(`https://wa.me/?text=${msg}`, '_blank');
+  }
+</script>
+</body>
+</html>
