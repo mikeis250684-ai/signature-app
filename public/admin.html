@@ -242,10 +242,12 @@
     succ.textContent = `✅ הקובץ "${file.name}" הועלה בהצלחה`;
     succ.classList.remove('hidden');
 
-    // Load PDF via proxy (avoids CORS)
+    // Load PDF via proxy with Hebrew CMap support
     pdfDoc = await pdfjsLib.getDocument({
       url: `/api/admin/pdf-proxy/${docId}`,
-      httpHeaders: { 'x-admin-token': adminToken }
+      httpHeaders: { 'x-admin-token': adminToken },
+      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+      cMapPacked: true,
     }).promise;
     await renderPage(1);
     goStep(2);

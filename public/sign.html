@@ -152,7 +152,11 @@
       document.getElementById('signer-name-display').textContent = data.signerName;
       document.getElementById('doc-name-display').textContent = data.docName;
 
-      pdfDoc = await pdfjsLib.getDocument(data.pdfUrl).promise;
+      pdfDoc = await pdfjsLib.getDocument({
+        url: data.pdfUrl,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
       await renderPage(1);
 
       document.getElementById('loading-screen').classList.add('hidden');
