@@ -37,7 +37,7 @@
   .upload-zone input { display: none; }
 
   /* PDF display */
-  #pdf-container { position: relative; width: 100%; }
+  #pdf-container { position: relative; width: 100%; overflow: hidden; }
   #pdf-iframe { display: block; width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
   #pdf-canvas { display: none; }
   #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
@@ -157,7 +157,7 @@
           💡 בחר עמוד ← לחץ "הוסף שדה" ← גרור על המסמך לסימון מיקום
         </p>
         <div id="pdf-container">
-          <iframe id="pdf-iframe" src=""></iframe>
+          <iframe id="pdf-iframe" src="" scrolling="no"></iframe>
           <canvas id="pdf-canvas"></canvas>
           <canvas id="field-overlay"></canvas>
         </div>
@@ -311,7 +311,7 @@
     // iframe — native renderer for correct Hebrew display
     const iframe = document.getElementById('pdf-iframe');
     iframe.style.height = h + 'px';
-    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${pageNum}&toolbar=0&navpanes=0`;
+    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${pageNum}&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
 
     // Overlay canvas — same exact pixel dimensions as the rendered PDF area
     const overlay = document.getElementById('field-overlay');
