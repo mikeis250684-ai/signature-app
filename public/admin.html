@@ -35,8 +35,9 @@
 
   /* PDF + overlay */
   #pdf-container { position: relative; width: 100%; }
-  #pdf-iframe { display: block; width: 100%; height: 700px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; }
-  #field-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 700px; pointer-events: all; }
+  #pdf-iframe { display: block; width: 100%; height: 800px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; }
+  #field-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 800px; pointer-events: none; }
+  #field-overlay.draw-active { pointer-events: all; cursor: crosshair; }
 
   .signer-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; margin-bottom: 12px; align-items: center; }
   .signer-row input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
@@ -47,6 +48,7 @@
 
   .link-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin-top: 16px; }
   .link-url { word-break: break-all; font-family: monospace; background: white; padding: 8px; border-radius: 4px; font-size: 13px; margin: 8px 0; }
+  .link-url a { color: #2563eb; text-decoration: underline; }
   .copy-btn { background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 8px; }
 
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
@@ -266,9 +268,17 @@
 
   function addFieldMode() {
     drawMode = true;
-    document.getElementById('draw-hint').textContent = 'גרור על ה-PDF להוסיף שדה';
-    document.getElementById('field-overlay').style.cursor = 'crosshair';
+    document.getElementById('draw-hint').textContent = 'גרור על ה-PDF להוסיף שדה — לחץ ESC לביטול';
+    document.getElementById('field-overlay').classList.add('draw-active');
   }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      drawMode = false; isDrawing = false; drawStart = null;
+      document.getElementById('field-overlay').classList.remove('draw-active');
+      document.getElementById('draw-hint').textContent = '';
+    }
+  });
 
   function drawFieldsOnOverlay() {
     const overlay = document.getElementById('field-overlay');
@@ -336,7 +346,7 @@
     }
     isDrawing = false; drawStart = null; drawMode = false;
     document.getElementById('draw-hint').textContent = '';
-    overlay.style.cursor = 'default';
+    document.getElementById('field-overlay').classList.remove('draw-active');
   });
 
   function updateFieldsList() {
@@ -384,18 +394,22 @@
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
 
-    document.getElementById('first-link').textContent = data.link;
+    document.getElementById('first-link').innerHTML = `<a href="${data.link}" target="_blank">${data.link}</a>`;
     document.getElementById('link-result').classList.remove('hidden');
   }
 
+  function getLink() {
+    const a = document.querySelector('#first-link a');
+    return a ? a.href : document.getElementById('first-link').textContent;
+  }
+
   function copyLink() {
-    navigator.clipboard.writeText(document.getElementById('first-link').textContent);
+    navigator.clipboard.writeText(getLink());
     alert('הלינק הועתק!');
   }
 
   function whatsappLink() {
-    const link = document.getElementById('first-link').textContent;
-    window.open(`https://wa.me/?text=${encodeURIComponent(link)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(getLink())}`, '_blank');
   }
 </script>
 </body>
