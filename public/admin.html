@@ -38,9 +38,9 @@
 
   /* PDF display */
   #pdf-container { position: relative; width: 100%; }
-  #pdf-iframe { display: block; width: 100%; height: 780px; border: 1px solid #e2e8f0; border-radius: 4px; }
-  #pdf-canvas { display: none; }
-  #field-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 780px; pointer-events: none; }
+  #pdf-iframe { display: none; }
+  #pdf-canvas { display: block; width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
+  #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
   #field-overlay.draw-active { pointer-events: all; cursor: crosshair; }
 
   .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
@@ -291,21 +291,33 @@
       pageDims[i] = { width: vp.width, height: vp.height };
     }
 
-    // Show PDF in iframe (correct Hebrew rendering)
-    document.getElementById('pdf-iframe').src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}`;
-
-    // Setup overlay canvas
-    setTimeout(() => {
-      const container = document.getElementById('pdf-container');
-      const overlay = document.getElementById('field-overlay');
-      overlay.width = container.offsetWidth;
-      overlay.height = 780;
-      drawFieldsOnOverlay();
-    }, 200);
-
     currentPage = 1;
-    document.getElementById('page-info').textContent = `עמוד 1 מתוך ${pdfDoc.numPages}`;
+    await renderPdfPage(1);
     goStep(2);
+  }
+
+  /* ── Render PDF page on canvas (exact scale = exact coordinates) ── */
+  async function renderPdfPage(pageNum) {
+    const container = document.getElementById('pdf-container');
+    const containerW = container.clientWidth || 820;
+    const dims = pageDims[pageNum] || { width: 595, height: 842 };
+    const sc   = containerW / dims.width;
+
+    const page     = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: sc });
+
+    const canvas = document.getElementById('pdf-canvas');
+    canvas.width  = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+    const overlay   = document.getElementById('field-overlay');
+    overlay.width   = viewport.width;
+    overlay.height  = viewport.height;
+
+    document.getElementById('page-info').textContent =
+      `עמוד ${pageNum} מתוך ${pdfDoc.numPages}`;
+    drawFieldsOnOverlay();
   }
 
   /* ── Draw fields on overlay ── */
@@ -396,15 +408,12 @@
     overlay.classList.remove('draw-active');
   });
 
-  function changePage(dir) {
+  async function changePage(dir) {
     if (!pdfDoc) return;
     const next = currentPage + dir;
     if (next < 1 || next > pdfDoc.numPages) return;
     currentPage = next;
-    document.getElementById('page-info').textContent = `עמוד ${next} מתוך ${pdfDoc.numPages}`;
-    // Navigate iframe to the correct page
-    document.getElementById('pdf-iframe').src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${next}`;
-    drawFieldsOnOverlay();
+    await renderPdfPage(next);
   }
 
   /* ── Send ── */
