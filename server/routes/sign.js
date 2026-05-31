@@ -11,6 +11,22 @@ async function sendEmail(to, subject, html) {
   await resend.emails.send({ from: 'חתימות <noreply@mkt.co.il>', to, subject, html });
 }
 
+// PDF proxy for signers (auth via token)
+router.get('/pdf-proxy', async (req, res) => {
+  try {
+    const { token } = req.query;
+    const { data: signer } = await supabase.from('signers').select('*, documents(*)').eq('token', token).single();
+    if (!signer) return res.status(404).send('Not found');
+    const { data: fileData } = await supabase.storage.from('pdfs').download(signer.documents.pdf_path);
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
 // Get signer info + document by token
 router.get('/info', async (req, res) => {
   try {
