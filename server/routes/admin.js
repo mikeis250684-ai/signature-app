@@ -44,8 +44,8 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// Get PDF signed URL for viewing
-router.get('/pdf-url/:docId', async (req, res) => {
+// Proxy PDF directly (avoids CORS issues with Supabase signed URLs)
+router.get('/pdf-proxy/:docId', async (req, res) => {
   try {
     const { data: doc } = await supabase
       .from('documents')
@@ -55,11 +55,16 @@ router.get('/pdf-url/:docId', async (req, res) => {
 
     if (!doc) return res.status(404).json({ error: 'Not found' });
 
-    const { data } = await supabase.storage
+    const { data: fileData, error } = await supabase.storage
       .from('pdfs')
-      .createSignedUrl(doc.pdf_path, 3600);
+      .download(doc.pdf_path);
 
-    res.json({ url: data.signedUrl });
+    if (error) throw error;
+
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

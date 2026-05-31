@@ -242,10 +242,11 @@
     succ.textContent = `✅ הקובץ "${file.name}" הועלה בהצלחה`;
     succ.classList.remove('hidden');
 
-    // Load PDF for display
-    const urlRes = await fetch(`/api/admin/pdf-url/${docId}`, { headers: { 'x-admin-token': adminToken } });
-    const { url } = await urlRes.json();
-    pdfDoc = await pdfjsLib.getDocument(url).promise;
+    // Load PDF via proxy (avoids CORS)
+    pdfDoc = await pdfjsLib.getDocument({
+      url: `/api/admin/pdf-proxy/${docId}`,
+      httpHeaders: { 'x-admin-token': adminToken }
+    }).promise;
     await renderPage(1);
     goStep(2);
   }
@@ -385,7 +386,7 @@
 
   function whatsappLink() {
     const link = document.getElementById('first-link').textContent;
-    const msg = encodeURIComponent(`שלום, ממתין לחתימתך על מסמך ביטוח.\nלחץ כאן לחתימה: ${link}`);
+    const msg = encodeURIComponent(link);
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   }
 </script>
