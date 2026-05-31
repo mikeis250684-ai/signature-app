@@ -38,8 +38,8 @@
 
   /* PDF display */
   #pdf-container { position: relative; width: 100%; }
-  #pdf-iframe { display: none; }
-  #pdf-canvas { display: block; width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
+  #pdf-iframe { display: block; width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
+  #pdf-canvas { display: none; }
   #field-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
   #field-overlay.draw-active { pointer-events: all; cursor: crosshair; }
 
@@ -296,24 +296,27 @@
     goStep(2);
   }
 
-  /* ── Render PDF page on canvas (exact scale = exact coordinates) ── */
+  /* ── Render PDF page ─────────────────────────────────────────────
+     Displays in iframe (native Hebrew rendering).
+     Overlay is sized to EXACTLY match the iframe using the same
+     scale = containerWidth / pdfPointsWidth, so coordinates are 1:1.
+  ── */
   async function renderPdfPage(pageNum) {
     const container = document.getElementById('pdf-container');
-    const containerW = container.clientWidth || 820;
-    const dims = pageDims[pageNum] || { width: 595, height: 842 };
-    const sc   = containerW / dims.width;
+    const dims  = pageDims[pageNum] || { width: 595, height: 842 };
+    const w     = container.clientWidth || 820;
+    const sc    = w / dims.width;
+    const h     = Math.round(dims.height * sc);
 
-    const page     = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: sc });
+    // iframe — native renderer for correct Hebrew display
+    const iframe = document.getElementById('pdf-iframe');
+    iframe.style.height = h + 'px';
+    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${pageNum}&toolbar=0&navpanes=0`;
 
-    const canvas = document.getElementById('pdf-canvas');
-    canvas.width  = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-
-    const overlay   = document.getElementById('field-overlay');
-    overlay.width   = viewport.width;
-    overlay.height  = viewport.height;
+    // Overlay canvas — same exact pixel dimensions as the rendered PDF area
+    const overlay = document.getElementById('field-overlay');
+    overlay.width  = w;
+    overlay.height = h;
 
     document.getElementById('page-info').textContent =
       `עמוד ${pageNum} מתוך ${pdfDoc.numPages}`;
