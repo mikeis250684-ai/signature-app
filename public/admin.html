@@ -338,26 +338,73 @@
     drawFieldsOnOverlay();
   }
 
-  /* ── Render stored fields as HTML divs (survive scrolling) ── */
-  function renderFieldDivs() {
-    const container = document.getElementById('pdf-container');
-    container.querySelectorAll('.field-div').forEach(el => el.remove());
+  /* ── Fixed overlay — position:fixed div that always tracks pdf-container ─────
+     This solves the scrolling issue: the overlay is NOT inside the scrollable
+     page flow, so it never drifts. On every scroll/resize we reposition it to
+     match the pdf-container's current viewport rectangle.
+  ─────────────────────────────────────────────────────────────────────────── */
+  const fixedOv = document.createElement('div');
+  fixedOv.style.cssText = 'position:fixed;pointer-events:none;z-index:200;overflow:hidden;box-sizing:border-box;';
+  document.body.appendChild(fixedOv);
 
-    const overlay = document.getElementById('field-overlay');
-    if (!overlay.width) return;
-    const dims  = pageDims[currentPage] || { width: 595, height: 842 };
-    const scale = overlay.width / dims.width;
+  function syncFixedOv() {
+    const c = document.getElementById('pdf-container');
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    fixedOv.style.left   = r.left   + 'px';
+    fixedOv.style.top    = r.top    + 'px';
+    fixedOv.style.width  = r.width  + 'px';
+    fixedOv.style.height = r.height + 'px';
+  }
+  window.addEventListener('scroll', syncFixedOv, { passive: true });
+  window.addEventListener('resize', syncFixedOv, { passive: true });
+
+  /* ── Drag-to-reposition state ─────────────────────────────────────────── */
+  let dragState = null;
+
+  document.addEventListener('mousemove', e => {
+    if (!dragState) return;
+    const { el, sx, sy, ox, oy } = dragState;
+    el.style.left = (ox + e.clientX - sx) + 'px';
+    el.style.top  = (oy + e.clientY - sy) + 'px';
+  });
+
+  document.addEventListener('mouseup', e => {
+    if (!dragState) return;
+    const { el, sx, sy, ox, oy, field } = dragState;
+    const ov   = document.getElementById('field-overlay');
+    const dims = pageDims[currentPage] || { width: 595, height: 842 };
+    const sc   = ov.width / dims.width;
+    // Save updated position back to field (PDF points)
+    field.x = Math.max(0, Math.min((ox + e.clientX - sx) / sc, dims.width  - field.width));
+    field.y = Math.max(0, Math.min((oy + e.clientY - sy) / sc, dims.height - field.height));
+    el.style.opacity = '1';
+    dragState = null;
+    renderFieldDivs(); // snap to saved coordinates
+  });
+
+  /* ── Render field markers into the fixed overlay ─────────────────────── */
+  function renderFieldDivs() {
+    fixedOv.innerHTML = '';
+    syncFixedOv();
+
+    const ov   = document.getElementById('field-overlay');
+    if (!ov.width) return;
+    const dims = pageDims[currentPage] || { width: 595, height: 842 };
+    const sc   = ov.width / dims.width;
 
     fields.filter(f => f.page === currentPage - 1).forEach(f => {
       const color = signerColors[f.signer_order] || '#888';
-      const el  = document.createElement('div');
+      const el    = document.createElement('div');
       el.className = 'field-div';
-      el.style.left       = (f.x * scale) + 'px';
-      el.style.top        = (f.y * scale) + 'px';
-      el.style.width      = (f.width  * scale) + 'px';
-      el.style.height     = (f.height * scale) + 'px';
-      el.style.border     = `2px dashed ${color}`;
-      el.style.background = color + '22';
+      el.style.cssText = [
+        'position:absolute', 'box-sizing:border-box',
+        'pointer-events:all', 'cursor:move',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        `left:${f.x * sc}px`, `top:${f.y * sc}px`,
+        `width:${f.width * sc}px`, `height:${f.height * sc}px`,
+        `border:2.5px dashed ${color}`, `background:${color}22`,
+      ].join(';');
 
       const lbl = document.createElement('span');
       lbl.className = 'field-lbl';
@@ -366,30 +413,42 @@
       el.appendChild(lbl);
 
       const del = document.createElement('button');
-      del.className    = 'field-del';
+      del.className = 'field-del';
       del.style.background = color;
-      del.innerHTML    = '✕';
-      del.title        = 'מחק שדה';
-      del.onclick = e => {
-        e.stopPropagation();
+      del.innerHTML = '✕';
+      del.title = 'מחק שדה';
+      del.onclick = ev => {
+        ev.stopPropagation();
         const idx = fields.indexOf(f);
         if (idx > -1) fields.splice(idx, 1);
         el.remove();
         updateFieldsList();
       };
       el.appendChild(del);
-      container.appendChild(el);
+
+      // ── Drag handler ──────────────────────────────────────────────────
+      el.addEventListener('mousedown', ev => {
+        if (drawMode || ev.target === del) return;
+        ev.preventDefault();
+        dragState = {
+          el, field: f,
+          sx: ev.clientX, sy: ev.clientY,
+          ox: parseFloat(el.style.left),
+          oy: parseFloat(el.style.top),
+        };
+        el.style.opacity = '0.72';
+      });
+
+      fixedOv.appendChild(el);
     });
     updateFieldsList();
   }
 
-  /* ── Canvas: used ONLY for temp drag rectangle (cleared after mouseup) ── */
+  /* ── Canvas helpers (temp drag rect only) ────────────────────────────── */
   function clearDrawCanvas() {
     const ov = document.getElementById('field-overlay');
     ov.getContext('2d').clearRect(0, 0, ov.width, ov.height);
   }
-
-  // Legacy alias so any remaining calls don't break
   function drawFieldsOnOverlay() { renderFieldDivs(); clearDrawCanvas(); }
 
   function updateFieldsList() {
@@ -405,21 +464,25 @@
     drawMode = true;
     document.getElementById('draw-hint').textContent = 'גרור על המסמך • ESC לביטול';
     document.getElementById('field-overlay').classList.add('draw-active');
+    fixedOv.style.display = 'none'; // hide field divs so canvas can receive events
+  }
+
+  function exitDrawMode() {
+    drawMode = false; isDrawing = false; drawStart = null;
+    document.getElementById('field-overlay').classList.remove('draw-active');
+    document.getElementById('draw-hint').textContent = '';
+    fixedOv.style.display = ''; // restore field divs
   }
 
   function clearFields() {
     fields = [];
-    document.getElementById('pdf-container').querySelectorAll('.field-div').forEach(el => el.remove());
+    fixedOv.innerHTML = '';
     clearDrawCanvas();
     updateFieldsList();
   }
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      drawMode = false; isDrawing = false; drawStart = null;
-      document.getElementById('field-overlay').classList.remove('draw-active');
-      document.getElementById('draw-hint').textContent = '';
-    }
+    if (e.key === 'Escape') exitDrawMode();
   });
 
   const overlay = document.getElementById('field-overlay');
@@ -458,12 +521,9 @@
         height: Math.abs(h) / scale,
       });
     }
-    // Clear temp drag rect, show field as persistent div
     clearDrawCanvas();
     renderFieldDivs();
-    isDrawing = false; drawStart = null; drawMode = false;
-    document.getElementById('draw-hint').textContent = '';
-    overlay.classList.remove('draw-active');
+    exitDrawMode();
   });
 
   async function changePage(dir) {
