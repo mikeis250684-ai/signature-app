@@ -153,34 +153,33 @@
         <div class="panel">
           <h2>מיקום שדות חתימה</h2>
           <p class="hint-text">⚠️ הטקסט עשוי להיות מוצג שונה — זה תקין. מיקום השדות יהיה מדויק.</p>
-          <div class="toolbar" style="margin-top:12px">
-            <span>חותם:</span>
+          <!-- Toolbar — all buttons here so user never needs to scroll -->
+          <div class="toolbar" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+            <span style="white-space:nowrap">חותם:</span>
             <select id="active-signer">
               <option value="1">מבוטח ראשי</option>
               <option value="2">מבוטח משני</option>
               <option value="3">סוכן</option>
             </select>
             <button class="btn btn-sm" onclick="addFieldMode()">+ הוסף שדה</button>
-            <span style="color:#e55;font-size:13px" id="draw-hint"></span>
-          </div>
-          <div class="page-nav">
-            <button onclick="changePage(-1)">◀ הקודם</button>
-            <span id="page-info" style="font-size:14px">עמוד 1 מתוך 1</span>
-            <button onclick="changePage(1)">הבא ▶</button>
-          </div>
-          <p class="hint-text" id="page-instruction" style="margin-bottom:8px">
-          💡 בחר עמוד ← לחץ "הוסף שדה" ← גרור על המסמך לסימון מיקום
-        </p>
-        <div id="pdf-container">
-          <iframe id="pdf-iframe" src="" scrolling="no"></iframe>
-          <canvas id="pdf-canvas"></canvas>
-          <canvas id="field-overlay"></canvas>
-        </div>
-          <div id="fields-list" style="margin-top:10px;font-size:13px"></div>
-          <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
             <button class="btn btn-sm btn-outline" onclick="clearFields()">נקה שדות</button>
-            <button class="btn btn-green" onclick="goStep(3)">המשך לשליחה ←</button>
+            <div class="page-nav" style="background:transparent;padding:0;box-shadow:none">
+              <button onclick="changePage(-1)">◀</button>
+              <span id="page-info" style="font-size:13px">עמוד 1 מתוך 1</span>
+              <button onclick="changePage(1)">▶</button>
+            </div>
+            <button class="btn btn-green" style="margin-right:auto" onclick="goStep(3)">המשך לשליחה ←</button>
+            <span style="color:#e55;font-size:13px;width:100%" id="draw-hint"></span>
           </div>
+          <p class="hint-text" style="margin:8px 0 6px">
+            💡 לחץ "הוסף שדה" ← גרור על המסמך ← גרור שדה קיים להזזה
+          </p>
+          <div id="pdf-container">
+            <iframe id="pdf-iframe" src="" scrolling="no"></iframe>
+            <canvas id="pdf-canvas"></canvas>
+            <canvas id="field-overlay"></canvas>
+          </div>
+          <div id="fields-list" style="margin-top:8px;font-size:13px"></div>
         </div>
       </div>
 
@@ -338,35 +337,14 @@
     drawFieldsOnOverlay();
   }
 
-  /* ── Fixed overlay — position:fixed div that always tracks pdf-container ─────
-     This solves the scrolling issue: the overlay is NOT inside the scrollable
-     page flow, so it never drifts. On every scroll/resize we reposition it to
-     match the pdf-container's current viewport rectangle.
-  ─────────────────────────────────────────────────────────────────────────── */
-  const fixedOv = document.createElement('div');
-  fixedOv.style.cssText = 'position:fixed;pointer-events:none;z-index:200;overflow:hidden;box-sizing:border-box;';
-  document.body.appendChild(fixedOv);
-
-  function syncFixedOv() {
-    const c = document.getElementById('pdf-container');
-    if (!c) return;
-    const r = c.getBoundingClientRect();
-    fixedOv.style.left   = r.left   + 'px';
-    fixedOv.style.top    = r.top    + 'px';
-    fixedOv.style.width  = r.width  + 'px';
-    fixedOv.style.height = r.height + 'px';
-  }
-  window.addEventListener('scroll', syncFixedOv, { passive: true });
-  window.addEventListener('resize', syncFixedOv, { passive: true });
-
   /* ── Drag-to-reposition state ─────────────────────────────────────────── */
   let dragState = null;
 
   document.addEventListener('mousemove', e => {
     if (!dragState) return;
     const { el, sx, sy, ox, oy } = dragState;
-    el.style.left = (ox + e.clientX - sx) + 'px';
-    el.style.top  = (oy + e.clientY - sy) + 'px';
+    el.style.left = Math.max(0, ox + e.clientX - sx) + 'px';
+    el.style.top  = Math.max(0, oy + e.clientY - sy) + 'px';
   });
 
   document.addEventListener('mouseup', e => {
@@ -375,18 +353,17 @@
     const ov   = document.getElementById('field-overlay');
     const dims = pageDims[currentPage] || { width: 595, height: 842 };
     const sc   = ov.width / dims.width;
-    // Save updated position back to field (PDF points)
     field.x = Math.max(0, Math.min((ox + e.clientX - sx) / sc, dims.width  - field.width));
     field.y = Math.max(0, Math.min((oy + e.clientY - sy) / sc, dims.height - field.height));
     el.style.opacity = '1';
     dragState = null;
-    renderFieldDivs(); // snap to saved coordinates
+    renderFieldDivs();
   });
 
-  /* ── Render field markers into the fixed overlay ─────────────────────── */
+  /* ── Render field markers as divs inside pdf-container ───────────────── */
   function renderFieldDivs() {
-    fixedOv.innerHTML = '';
-    syncFixedOv();
+    const container = document.getElementById('pdf-container');
+    container.querySelectorAll('.field-div').forEach(el => el.remove());
 
     const ov   = document.getElementById('field-overlay');
     if (!ov.width) return;
@@ -398,7 +375,7 @@
       const el    = document.createElement('div');
       el.className = 'field-div';
       el.style.cssText = [
-        'position:absolute', 'box-sizing:border-box',
+        'position:absolute', 'box-sizing:border-box', 'z-index:2',
         'pointer-events:all', 'cursor:move',
         'display:flex', 'align-items:center', 'justify-content:center',
         `left:${f.x * sc}px`, `top:${f.y * sc}px`,
@@ -426,7 +403,6 @@
       };
       el.appendChild(del);
 
-      // ── Drag handler ──────────────────────────────────────────────────
       el.addEventListener('mousedown', ev => {
         if (drawMode || ev.target === del) return;
         ev.preventDefault();
@@ -439,12 +415,12 @@
         el.style.opacity = '0.72';
       });
 
-      fixedOv.appendChild(el);
+      container.appendChild(el);
     });
     updateFieldsList();
   }
 
-  /* ── Canvas helpers (temp drag rect only) ────────────────────────────── */
+  /* ── Canvas helpers ───────────────────────────────────────────────────── */
   function clearDrawCanvas() {
     const ov = document.getElementById('field-overlay');
     ov.getContext('2d').clearRect(0, 0, ov.width, ov.height);
@@ -464,19 +440,20 @@
     drawMode = true;
     document.getElementById('draw-hint').textContent = 'גרור על המסמך • ESC לביטול';
     document.getElementById('field-overlay').classList.add('draw-active');
-    fixedOv.style.display = 'none'; // hide field divs so canvas can receive events
+    // hide field divs so canvas gets mouse events
+    document.getElementById('pdf-container').querySelectorAll('.field-div')
+      .forEach(el => el.style.pointerEvents = 'none');
   }
 
   function exitDrawMode() {
     drawMode = false; isDrawing = false; drawStart = null;
     document.getElementById('field-overlay').classList.remove('draw-active');
     document.getElementById('draw-hint').textContent = '';
-    fixedOv.style.display = ''; // restore field divs
   }
 
   function clearFields() {
     fields = [];
-    fixedOv.innerHTML = '';
+    document.getElementById('pdf-container').querySelectorAll('.field-div').forEach(el => el.remove());
     clearDrawCanvas();
     updateFieldsList();
   }
