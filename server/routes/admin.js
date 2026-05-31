@@ -138,6 +138,21 @@ router.get('/documents', async (req, res) => {
   res.json(data);
 });
 
+// Get all signers with status (for admin polling)
+router.get('/signers/:docId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('signers')
+      .select('id, name, signer_order, signed_at, token')
+      .eq('document_id', req.params.docId)
+      .order('signer_order');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Download signed PDF
 router.get('/download/:id', async (req, res) => {
   try {
