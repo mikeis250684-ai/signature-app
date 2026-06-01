@@ -200,19 +200,13 @@
         </div>
 
         <div class="panel hidden" id="link-result">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <h2 style="margin:0">📋 מצב חתימות</h2>
-            <span style="font-size:12px;color:#94a3b8" id="poll-indicator">מתרענן...</span>
-          </div>
+          <h2 style="margin-bottom:12px">📋 קישורים לחתימה</h2>
           <div id="signers-status-panel"></div>
-          <div id="doc-complete-banner" class="hidden" style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:16px;margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <span style="font-size:2rem">✅</span>
-            <div style="flex:1">
-              <div style="font-weight:700;color:#065f46;font-size:15px">כל החותמים חתמו!</div>
-              <div style="font-size:13px;color:#047857">המסמך הסופי נוצר ונשמר</div>
-            </div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn btn-outline" id="btn-check-status" onclick="checkStatus()">🔄 בדוק מי חתם</button>
             <button class="btn btn-green" id="btn-dl-final">⬇ הורד PDF חתום</button>
           </div>
+          <div id="status-msg" style="margin-top:10px;font-size:13px;color:#64748b"></div>
         </div>
       </div>
 
@@ -537,84 +531,93 @@
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; err.classList.remove('hidden'); return; }
 
+    if (!data.links || data.links.length === 0) {
+      err.textContent = 'שגיאה: לא נוצרו קישורים'; err.classList.remove('hidden'); return;
+    }
+    renderAllLinks(data.links);
     document.getElementById('link-result').classList.remove('hidden');
-    startPolling();
+    document.getElementById('status-msg').textContent = `נוצרו ${data.links.length} קישורים לחתימה`;
   }
 
-  /* ── Signer status polling ─────────────────────────────────────────── */
-  let pollTimer = null;
-  const appOrigin = window.location.origin;
-
-  function startPolling() {
-    clearTimeout(pollTimer);
-    pollTimer = setTimeout(async function tick() {
-      try {
-        const signers = await fetch(`/api/admin/signers/${docId}`, {
-          headers: { 'x-admin-token': adminToken }
-        }).then(r => r.json());
-
-        renderSignerStatus(signers);
-
-        const allDone = signers.length > 0 && signers.every(s => !!s.signed_at);
-        if (allDone) {
-          document.getElementById('doc-complete-banner').classList.remove('hidden');
-          document.getElementById('poll-indicator').textContent = '✅ הושלם';
-        } else {
-          document.getElementById('poll-indicator').textContent = 'מתרענן כל 5 שניות';
-          pollTimer = setTimeout(tick, 5000);
-        }
-      } catch (e) {
-        pollTimer = setTimeout(tick, 5000);
-      }
-    }, 500);
-  }
-
-  function renderSignerStatus(signers) {
+  /* ── Show all signer links immediately after send ─────────────────── */
+  function renderAllLinks(links) {
     const el = document.getElementById('signers-status-panel');
-    el.innerHTML = signers.map((s, i) => {
-      const signed   = !!s.signed_at;
-      const prevDone = i === 0 || !!signers[i - 1].signed_at;
-      const isNext   = !signed && prevDone;
-      const link     = `${appOrigin}/sign.html?token=${s.token}`;
-      const waText   = encodeURIComponent(`שלום ${s.name}!\nאנא לחץ לחתימה על המסמך:\n${link}`);
-
-      const icon = signed ? '✅' : isNext ? '⏳' : '🔒';
-      const bg   = signed ? '#f0fdf4' : isNext ? '#eff6ff' : '#f8fafc';
-      const bdr  = signed ? '#86efac' : isNext ? '#93c5fd' : '#e2e8f0';
-      const sub  = signed
-        ? `חתם ב-${new Date(s.signed_at).toLocaleString('he-IL')}`
-        : isNext ? 'ממתין לחתימה — שלח קישור' : 'ממתין לתור';
-
-      const actionBtns = isNext ? `
-        <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
-          <button class="btn btn-sm" style="background:#e2e8f0;font-size:11px"
-            onclick="navigator.clipboard.writeText('${link}');this.textContent='✅ הועתק!';setTimeout(()=>this.textContent='📋 העתק',2000)">
-            📋 העתק
-          </button>
-          <a class="btn btn-sm" style="background:#25D366;color:white;font-size:11px;text-decoration:none"
-            href="https://wa.me/?text=${waText}" target="_blank">
-            📱 ווצאפ
-          </a>
-        </div>` : '';
-
+    el.innerHTML = links.map((s, i) => {
+      const waText = encodeURIComponent(`שלום ${s.name}!\nאנא לחץ לחתימה על המסמך:\n${s.link}`);
       return `
-        <div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:8px;
-                    margin-bottom:8px;background:${bg};border:1px solid ${bdr}">
-          <div style="font-size:1.5rem;width:30px;text-align:center;flex-shrink:0">${icon}</div>
+        <div id="signer-row-${i}" style="display:flex;align-items:center;gap:10px;padding:12px;
+             border-radius:8px;margin-bottom:8px;background:#eff6ff;border:1px solid #93c5fd">
+          <div style="font-size:1.3rem;flex-shrink:0">✏️</div>
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;font-size:14px">
               ${s.name}
               <span style="color:#94a3b8;font-size:11px;font-weight:400"> · חותם ${i + 1}</span>
             </div>
-            <div style="font-size:12px;color:#64748b">${sub}</div>
-            ${isNext ? `<div style="font-size:10px;color:#3b82f6;word-break:break-all;margin-top:2px">${link}</div>` : ''}
+            <div style="font-size:10px;color:#3b82f6;word-break:break-all;margin-top:2px">${s.link}</div>
           </div>
-          ${actionBtns}
+          <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+            <button class="btn btn-sm" style="background:#e2e8f0;font-size:11px"
+              onclick="navigator.clipboard.writeText('${s.link}');this.textContent='✅ הועתק';setTimeout(()=>this.textContent='📋 העתק',2000)">
+              📋 העתק
+            </button>
+            <a class="btn btn-sm" style="background:#25D366;color:white;font-size:11px;text-decoration:none"
+              href="https://wa.me/?text=${waText}" target="_blank">📱 ווצאפ</a>
+          </div>
         </div>`;
     }).join('');
   }
 
-  document.getElementById('btn-dl-final').addEventListener('click', () => {
+  /* ── Manual status check ───────────────────────────────────────────── */
+  async function checkStatus() {
+    const btn = document.getElementById('btn-check-status');
+    const msg = document.getElementById('status-msg');
+    btn.disabled = true;
+    btn.textContent = '⏳ בודק...';
+    try {
+      const signers = await fetch(`/api/admin/signers/${docId}`, {
+        headers: { 'x-admin-token': adminToken }
+      }).then(r => r.json());
+
+      const total  = signers.length;
+      const signed = signers.filter(s => !!s.signed_at).length;
+      const allDone = signed === total;
+
+      // Update each row with status
+      signers.forEach((s, i) => {
+        const row = document.getElementById(`signer-row-${i}`);
+        if (!row) return;
+        if (s.signed_at) {
+          row.style.background = '#f0fdf4';
+          row.style.borderColor = '#86efac';
+          row.querySelector('div').textContent = '✅';
+        }
+      });
+
+      if (allDone) {
+        msg.innerHTML = '<span style="color:#059669;font-weight:600">✅ כולם חתמו — ניתן להוריד!</span>';
+      } else {
+        msg.textContent = `חתמו ${signed} מתוך ${total} חותמים`;
+      }
+    } catch (e) {
+      msg.textContent = 'שגיאה בבדיקה';
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 בדוק מי חתם';
+  }
+
+  document.getElementById('btn-dl-final').addEventListener('click', async () => {
+    const msg = document.getElementById('status-msg');
+    // Verify all signed before downloading
+    try {
+      const signers = await fetch(`/api/admin/signers/${docId}`, {
+        headers: { 'x-admin-token': adminToken }
+      }).then(r => r.json());
+      const unsigned = signers.filter(s => !s.signed_at);
+      if (unsigned.length > 0) {
+        msg.innerHTML = `<span style="color:#dc2626">⚠️ עדיין ממתין ל-${unsigned.length} חותמים: ${unsigned.map(s => s.name).join(', ')}</span>`;
+        return;
+      }
+    } catch (e) {}
     window.open(`/api/admin/download/${docId}?token=${adminToken}`, '_blank');
   });
 

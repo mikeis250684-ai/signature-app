@@ -118,11 +118,16 @@ router.post('/send/:docId', async (req, res) => {
     // Update doc status
     await supabase.from('documents').update({ status: 'in_progress' }).eq('id', docId);
 
-    // Return first signer link
-    const first = signerRows[0];
-    const link = `${process.env.APP_URL}/sign.html?token=${first.token}`;
+    console.log(`Document ${docId}: created ${signerRows.length} signers:`, signerRows.map(s => `${s.name} (order ${s.signer_order})`));
 
-    res.json({ link, signerName: first.name, signerEmail: first.email });
+    // Return a link for EVERY signer — admin sends each link independently
+    const links = signerRows.map(s => ({
+      name:  s.name,
+      order: s.signer_order,
+      link:  `${process.env.APP_URL}/sign.html?token=${s.token}`,
+    }));
+
+    res.json({ links });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

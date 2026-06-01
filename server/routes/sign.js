@@ -93,32 +93,29 @@ router.post('/submit', async (req, res) => {
       });
     }
 
-    // Check next signer
-    const { data: nextSigner } = await supabase
+    // Re-fetch ALL signers for this document and check in JS (avoids Supabase NULL quirks)
+    const { data: allSigners, error: signersErr } = await supabase
       .from('signers')
-      .select('*')
-      .eq('document_id', signer.document_id)
-      .eq('signer_order', signer.signer_order + 1)
-      .single();
+      .select('id, name, signed_at')
+      .eq('document_id', signer.document_id);
 
-    if (nextSigner) {
-      // Send link to next signer
-      const link = `${process.env.APP_URL}/sign.html?token=${nextSigner.token}`;
-      if (nextSigner.email) {
-        await sendEmail(nextSigner.email, `נדרשת חתימתך על: ${signer.documents.name}`, `
-          <div dir="rtl" style="font-family: Arial; font-size: 16px;">
-            <p>שלום ${nextSigner.name},</p>
-            <p>מסמך <strong>${signer.documents.name}</strong> ממתין לחתימתך.</p>
-            <p><a href="${link}" style="background:#2563eb;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;">לחץ כאן לחתימה</a></p>
-            <p>הלינק תקף ל-30 יום.</p>
-          </div>
-        `);
-      }
-      res.json({ status: 'signed', nextSignerName: nextSigner.name, link });
-    } else {
-      // All signed — burn PDF and notify admin
+    if (signersErr) {
+      console.error('Error fetching signers:', signersErr);
+      return res.status(500).json({ error: signersErr.message });
+    }
+
+    const unsigned = (allSigners || []).filter(s => !s.signed_at);
+
+    console.log(`Document ${signer.document_id}: ${allSigners.length} total signers, ${unsigned.length} still unsigned`);
+    console.log('Unsigned:', unsigned.map(s => s.name));
+
+    if (unsigned.length === 0) {
+      // Every signer is done — finalize the PDF
       await finalizePdf(signer.document_id);
       res.json({ status: 'complete' });
+    } else {
+      // Still waiting for others
+      res.json({ status: 'signed', remaining: unsigned.length });
     }
   } catch (err) {
     console.error(err);
