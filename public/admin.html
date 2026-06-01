@@ -598,41 +598,58 @@
       badge.textContent = ` · חותם ${i + 1}`;
       nameEl.appendChild(badge);
 
-      const linkA = document.createElement('a');
-      linkA.href = s.link;
-      linkA.target = '_blank';
-      linkA.rel = 'noopener noreferrer';
-      linkA.textContent = s.link;
-      linkA.style.cssText = 'font-size:10px;color:#2563eb;word-break:break-all;display:block;text-decoration:underline;cursor:pointer';
+      // ── "פתח קישור" button — button is ALWAYS clickable ──────────────
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.textContent = '🔗 פתח קישור לחתימה';
+      openBtn.style.cssText = [
+        'display:block','width:100%','text-align:right',
+        'background:#eff6ff','border:1px solid #bfdbfe','border-radius:6px',
+        'padding:7px 10px','color:#1d4ed8','font-size:12px','font-weight:600',
+        'cursor:pointer','margin-top:5px','font-family:inherit',
+      ].join(';');
+      openBtn.onclick = function() {
+        const w = window.open(s.link, '_blank');
+        if (!w) window.location.href = s.link; // fallback if popup blocked
+      };
+
+      // URL text (small, select-to-copy)
+      const linkText = document.createElement('div');
+      linkText.textContent = s.link;
+      linkText.style.cssText = 'font-size:9px;color:#94a3b8;word-break:break-all;margin-top:3px;user-select:all';
 
       info.appendChild(nameEl);
-      info.appendChild(linkA);
+      info.appendChild(openBtn);
+      info.appendChild(linkText);
 
       // ── Buttons ────────────────────────────────────────────────────
       const btns = document.createElement('div');
       btns.style.cssText = 'display:flex;flex-direction:column;gap:5px;flex-shrink:0';
 
       const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
       copyBtn.className = 'btn btn-sm';
       copyBtn.style.cssText = 'background:#e2e8f0;font-size:11px';
       copyBtn.textContent = '📋 העתק';
-      copyBtn.addEventListener('click', () => {
+      copyBtn.onclick = function() {
         navigator.clipboard.writeText(s.link);
         copyBtn.textContent = '✅ הועתק';
         setTimeout(() => { copyBtn.textContent = '📋 העתק'; }, 2000);
-      });
+      };
 
       const waMsg = `מצורפים מסמכים לחתימה עבור ${s.name}\n${s.link}`;
-      const waA = document.createElement('a');
-      waA.className = 'btn btn-sm';
-      waA.href = `https://wa.me/?text=${encodeURIComponent(waMsg)}`;
-      waA.target = '_blank';
-      waA.rel = 'noopener';
-      waA.textContent = '📱 ווצאפ';
-      waA.style.cssText = 'background:#25D366;color:white;font-size:11px;text-decoration:none;text-align:center';
+      const waBtn = document.createElement('button');
+      waBtn.type = 'button';
+      waBtn.className = 'btn btn-sm';
+      waBtn.textContent = '📱 ווצאפ';
+      waBtn.style.cssText = 'background:#25D366;color:white;font-size:11px;border:none';
+      waBtn.onclick = function() {
+        const url = `https://wa.me/?text=${encodeURIComponent(waMsg)}`;
+        window.open(url, '_blank') || (window.location.href = url);
+      };
 
       btns.appendChild(copyBtn);
-      btns.appendChild(waA);
+      btns.appendChild(waBtn);
 
       row.appendChild(ico);
       row.appendChild(info);
