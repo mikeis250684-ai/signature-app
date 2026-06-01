@@ -187,15 +187,12 @@
       <div id="step-3" class="hidden">
         <div class="panel">
           <h2>פרטי החותמים</h2>
-          <div class="signer-row" style="font-weight:bold;color:#64748b;font-size:13px">
-            <span>שם מלא</span><span>מייל</span><span>טלפון</span><span></span>
+          <p class="hint-text" style="margin-bottom:10px">הוסף שורה לכל חותם — רק שורות עם שם ייכללו</p>
+          <div id="signers-form"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="btn btn-sm btn-outline" onclick="addSignerRow()">+ הוסף חותם</button>
+            <button class="btn btn-green" style="margin-right:auto" onclick="sendDocument()">שלח מסמך לחתימה 🚀</button>
           </div>
-          <div id="signers-form">
-            <div class="signer-row"><input placeholder="שם מבוטח ראשי" data-field="name"><input placeholder="מייל" type="email" data-field="email"><input placeholder="טלפון" data-field="phone"><span class="badge badge-1">חותם 1</span></div>
-            <div class="signer-row"><input placeholder="שם מבוטח משני (אופציונלי)" data-field="name"><input placeholder="מייל" type="email" data-field="email"><input placeholder="טלפון" data-field="phone"><span class="badge badge-2">חותם 2</span></div>
-            <div class="signer-row"><input placeholder="שם הסוכן" data-field="name" value="מיכאל קרויטרו"><input placeholder="מייל" type="email" data-field="email"><input placeholder="טלפון" data-field="phone"><span class="badge badge-3">חותם 3</span></div>
-          </div>
-          <button class="btn btn-green" style="margin-top:18px" onclick="sendDocument()">שלח מסמך לחתימה 🚀</button>
           <p class="error hidden" id="send-error"></p>
         </div>
 
@@ -274,6 +271,36 @@
       el.style.background = i === n ? '#2563eb' : '#e2e8f0';
       el.style.color = i === n ? 'white' : '#64748b';
     });
+    if (n === 3 && document.getElementById('signers-form').children.length === 0) {
+      addSignerRow(); // Start with one empty row
+    }
+  }
+
+  /* ── Dynamic signers form ── */
+  const signerColors3 = ['#2563eb','#16a34a','#d97706','#7c3aed','#db2777'];
+
+  function addSignerRow() {
+    const form = document.getElementById('signers-form');
+    const idx  = form.children.length + 1;
+    const color = signerColors3[(idx - 1) % signerColors3.length];
+    const row = document.createElement('div');
+    row.className = 'signer-row';
+    row.style.marginBottom = '8px';
+    row.innerHTML = `
+      <input placeholder="שם מלא *" data-field="name" style="border-color:${color}22">
+      <input placeholder="מייל (אופציונלי)" type="email" data-field="email">
+      <input placeholder="טלפון" data-field="phone">
+      <button type="button" title="הסר חותם"
+        style="background:#fee2e2;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;color:#dc2626;font-size:14px;min-width:32px"
+        onclick="removeSignerRow(this)">✕</button>
+    `;
+    form.appendChild(row);
+  }
+
+  function removeSignerRow(btn) {
+    const form = document.getElementById('signers-form');
+    if (form.children.length <= 1) { alert('חייב להיות לפחות חותם אחד'); return; }
+    btn.closest('.signer-row').remove();
   }
 
   /* ── Upload ── */
@@ -553,7 +580,10 @@
               ${s.name}
               <span style="color:#94a3b8;font-size:11px;font-weight:400"> · חותם ${i + 1}</span>
             </div>
-            <div style="font-size:10px;color:#3b82f6;word-break:break-all;margin-top:2px">${s.link}</div>
+            <a href="${s.link}" target="_blank" rel="noopener"
+               style="font-size:10px;color:#3b82f6;word-break:break-all;margin-top:2px;display:block;text-decoration:underline">
+              ${s.link}
+            </a>
           </div>
           <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
             <button class="btn btn-sm" style="background:#e2e8f0;font-size:11px"
