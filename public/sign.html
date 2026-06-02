@@ -142,8 +142,8 @@
       document.getElementById('main-screen').classList.add('hidden');
       document.getElementById('success-screen').classList.remove('hidden');
       document.getElementById('success-msg').textContent = data.status === 'complete'
-        ? 'כל החותמים השלימו — המסמך הסופי נשלח לסוכן.'
-        : `החתימה נשמרה. הלינק נשלח ל${data.nextSignerName}.`;
+        ? 'כל החותמים השלימו — המסמך הסופי נוצר!'
+        : 'החתימה שלך נשמרה בהצלחה!';
     } catch (e) {
       alert('שגיאה: ' + e.message);
       btn.disabled = false;
