@@ -15,7 +15,8 @@
     "@supabase/supabase-js": "^2.38.4",
     "resend": "^2.0.0",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "@pdf-lib/fontkit": "^1.1.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
