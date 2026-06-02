@@ -2,17 +2,49 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const HEBREW_FONT_PATH = path.join(__dirname, '../assets/Heebo-Bold.woff2');
+const HEBREW_FONT_URL  = 'https://cdn.jsdelivr.net/npm/@fontsource/heebo@5/files/heebo-all-700-normal.woff2';
+
+// Download font once if missing
+function ensureFont() {
+  return new Promise((resolve, reject) => {
+    if (fs.existsSync(HEBREW_FONT_PATH) && fs.statSync(HEBREW_FONT_PATH).size > 10000) {
+      return resolve();
+    }
+    const dir = path.dirname(HEBREW_FONT_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = fs.createWriteStream(HEBREW_FONT_PATH);
+    https.get(HEBREW_FONT_URL, res => {
+      if (res.statusCode !== 200) {
+        file.close();
+        return reject(new Error(`Font download failed: ${res.statusCode}`));
+      }
+      res.pipe(file);
+      file.on('finish', () => { file.close(); resolve(); });
+    }).on('error', reject);
+  });
+}
 
 async function burnSignatures(pdfBytes, signatures) {
   const pdfDoc = await PDFDocument.load(pdfBytes);
-  pdfDoc.registerFontkit(fontkit);
+  const pages  = pdfDoc.getPages();
 
-  const hebrewFontBytes = fs.readFileSync(HEBREW_FONT_PATH);
-  const fontBold = await pdfDoc.embedFont(hebrewFontBytes);
-  const fontReg  = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const today    = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
+  // Try to use Hebrew font; fall back to Helvetica if unavailable
+  let fontBold;
+  try {
+    await ensureFont();
+    pdfDoc.registerFontkit(fontkit);
+    const hebrewFontBytes = fs.readFileSync(HEBREW_FONT_PATH);
+    fontBold = await pdfDoc.embedFont(hebrewFontBytes);
+  } catch (e) {
+    console.warn('Hebrew font unavailable, falling back to Helvetica:', e.message);
+    fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  }
+
+  const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const today   = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
 
   for (const sig of signatures) {
     const page = pages[sig.page];
@@ -53,8 +85,8 @@ async function burnSignatures(pdfBytes, signatures) {
 
     // Green checkmark (two lines)
     const ck = { x: stX + 4, y: stY + stH / 2 };
-    page.drawLine({ start: { x: ck.x,     y: ck.y - 1.5 }, end: { x: ck.x + 2.5, y: ck.y - 3.5 }, thickness: 1.1, color: rgb(0.04, 0.54, 0.14) });
-    page.drawLine({ start: { x: ck.x + 2.5, y: ck.y - 3.5 }, end: { x: ck.x + 7, y: ck.y + 4 }, thickness: 1.1, color: rgb(0.04, 0.54, 0.14) });
+    page.drawLine({ start: { x: ck.x,       y: ck.y - 1.5 }, end: { x: ck.x + 2.5, y: ck.y - 3.5 }, thickness: 1.1, color: rgb(0.04, 0.54, 0.14) });
+    page.drawLine({ start: { x: ck.x + 2.5, y: ck.y - 3.5 }, end: { x: ck.x + 7,   y: ck.y + 4   }, thickness: 1.1, color: rgb(0.04, 0.54, 0.14) });
 
     // Vertical separator
     page.drawLine({
