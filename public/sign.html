@@ -26,15 +26,14 @@
     width: 100%; height: 100%;
     pointer-events: none;
   }
-  #field-marker {
+  .field-marker {
     position: absolute;
     border: 2.5px dashed #2563eb;
     background: rgba(37,99,235,0.07);
     border-radius: 3px;
     box-shadow: 0 0 0 3px rgba(37,99,235,0.13);
-    display: none;
   }
-  #field-marker-label {
+  .field-marker-label {
     position: absolute; bottom: 100%; right: 0; margin-bottom: 4px;
     background: #2563eb; color: white;
     font-size: 10px; font-weight: bold;
@@ -89,9 +88,7 @@
       <div id="pdf-wrap">
         <iframe id="pdf-iframe" src=""></iframe>
         <div id="field-overlay">
-          <div id="field-marker">
-            <div id="field-marker-label">✍️ החתימה שלך כאן</div>
-          </div>
+          <!-- field markers injected dynamically by positionMarkers() -->
         </div>
       </div>
     </div>
@@ -141,37 +138,34 @@
       document.getElementById('header-sub').textContent = `${data.docName} — ${data.signerName}`;
       document.getElementById('signer-badge').textContent = data.signerName;
 
-      const field    = data.fields && data.fields[0];
-      const pageNum  = field ? field.page + 1 : 1;  // field.page is 0-indexed
+      const fields = data.fields || [];
 
       // iframe — native renderer (Hebrew works perfectly)
-      // Full document shown (no #page fragment) — height will be set by positionMarker()
       const iframe = document.getElementById('pdf-iframe');
       iframe.src = `/api/sign/pdf-proxy?token=${token}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
-      iframe.style.height = '400px'; // temporary until positionMarker sets exact height
+      iframe.style.height = '400px'; // temporary until positionMarkers sets exact height
 
       document.getElementById('loading-screen').classList.add('hidden');
       document.getElementById('main-screen').classList.remove('hidden');
       initSigPad();
 
-      // Position field marker using pdf.js just for page dimensions (no rendering)
-      if (field) positionMarker(field, pageNum);
+      // Position ALL field markers
+      if (fields.length > 0) positionMarkers(fields);
 
     } catch (e) {
       showError('שגיאה בטעינה', e.message);
     }
   }
 
-  async function positionMarker(field, pageNum) {
+  async function positionMarkers(fields) {
     try {
-      // Load PDF silently — only for dimensions (no canvas rendering)
+      // Load PDF silently — only for page dimensions (no canvas rendering)
       const pdf = await pdfjsLib.getDocument({
         url: `/api/sign/pdf-proxy?token=${token}`,
         cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
         cMapPacked: true,
       }).promise;
 
-      // Get dimensions of all pages
       const pageDims = [];
       for (let i = 1; i <= pdf.numPages; i++) {
         const pg = await pdf.getPage(i);
@@ -183,35 +177,54 @@
       const wrap    = document.getElementById('pdf-wrap');
       const iframeW = wrap.clientWidth || 820;
       const scale   = iframeW / pageDims[0].width;
+      const PAGE_GAP = 9; // Chrome PDF viewer gap between pages
 
-      // Chrome PDF viewer adds ~9px gap between pages
-      const PAGE_GAP = 9;
-
-      // Total iframe height = sum of all page heights + gaps
+      // Set iframe height = full document height (no internal scroll)
       const totalH = pageDims.reduce((sum, vp) => sum + Math.round(vp.height * scale), 0)
                      + PAGE_GAP * (pdf.numPages - 1);
-
       document.getElementById('pdf-iframe').style.height = totalH + 'px';
 
-      // Y offset = sum of heights of all pages BEFORE the signature page + gaps
-      let offsetY = 0;
-      for (let i = 0; i < field.page; i++) {
-        offsetY += Math.round(pageDims[i].height * scale) + PAGE_GAP;
+      // Compute Y offset for each page (cumulative heights + gaps)
+      const pageOffsets = [];
+      let cumY = 0;
+      for (let i = 0; i < pageDims.length; i++) {
+        pageOffsets.push(cumY);
+        cumY += Math.round(pageDims[i].height * scale) + PAGE_GAP;
       }
 
-      // Place marker
-      const marker = document.getElementById('field-marker');
-      marker.style.left   = (field.x     * scale) + 'px';
-      marker.style.top    = (offsetY + field.y * scale) + 'px';
-      marker.style.width  = (field.width  * scale) + 'px';
-      marker.style.height = (field.height * scale) + 'px';
-      marker.style.display = 'block';
+      // Create a marker div for EACH field
+      const overlay = document.getElementById('field-overlay');
+      overlay.innerHTML = '';
+      let firstMarker = null;
 
-      // Scroll marker into view
-      setTimeout(() => marker.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+      fields.forEach((field, idx) => {
+        const offsetY = pageOffsets[field.page] || 0;
+
+        const marker = document.createElement('div');
+        marker.className = 'field-marker';
+        marker.style.left   = (field.x     * scale) + 'px';
+        marker.style.top    = (offsetY + field.y * scale) + 'px';
+        marker.style.width  = (field.width  * scale) + 'px';
+        marker.style.height = (field.height * scale) + 'px';
+
+        const label = document.createElement('div');
+        label.className = 'field-marker-label';
+        label.textContent = fields.length > 1
+          ? `✍️ שדה חתימה ${idx + 1} (עמוד ${field.page + 1})`
+          : '✍️ החתימה שלך כאן';
+        marker.appendChild(label);
+        overlay.appendChild(marker);
+
+        if (!firstMarker) firstMarker = marker;
+      });
+
+      // Scroll to first marker
+      if (firstMarker) {
+        setTimeout(() => firstMarker.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+      }
 
     } catch (e) {
-      console.warn('positionMarker failed:', e);
+      console.warn('positionMarkers failed:', e);
       document.getElementById('pdf-iframe').style.height = '600px';
     }
   }

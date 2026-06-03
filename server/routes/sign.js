@@ -83,15 +83,20 @@ router.post('/submit', async (req, res) => {
     // Mark as signed
     await supabase.from('signers').update({ signed_at: new Date().toISOString() }).eq('token', token);
 
-    // Save signature record
-    for (const field of fields) {
-      await supabase.from('signatures').insert({
-        document_id: signer.document_id,
-        signer_id: signer.id,
-        field_id: field.id,
-        image_data: signatureImage,
-      });
+    // Save a signature record for EVERY field — insert all at once and check for errors
+    console.log(`Saving signatures for ${fields.length} field(s):`, fields.map(f => `page ${f.page} id=${f.id}`));
+    const sigRows = fields.map(f => ({
+      document_id: signer.document_id,
+      signer_id:   signer.id,
+      field_id:    f.id,
+      image_data:  signatureImage,
+    }));
+    const { error: sigInsertErr } = await supabase.from('signatures').insert(sigRows);
+    if (sigInsertErr) {
+      console.error('Signature insert error:', sigInsertErr);
+      throw new Error(`שגיאה בשמירת חתימה: ${sigInsertErr.message}`);
     }
+    console.log(`Saved ${sigRows.length} signature record(s) OK`);
 
     // Re-fetch ALL signers for this document and check in JS (avoids Supabase NULL quirks)
     const { data: allSigners, error: signersErr } = await supabase
@@ -135,6 +140,7 @@ async function finalizePdf(documentId) {
   const pdfBytes = Buffer.from(await pdfData.arrayBuffer());
 
   // Burn all signatures
+  console.log(`Burning ${allSignatures.length} signature(s) into PDF`);
   const sigData = allSignatures.map(s => ({
     page: s.signature_fields.page,
     x: s.signature_fields.x,
