@@ -217,7 +217,10 @@
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h2 style="margin:0">המסמכים שלי</h2>
-          <button class="btn btn-sm" onclick="loadDocs()">🔄 רענן</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="loadDocs()">🔄 רענן</button>
+            <button class="btn btn-sm" style="background:#ef4444;color:white;border:none" onclick="deleteAllDocs()">🗑 מחק הכל</button>
+          </div>
         </div>
         <div id="docs-loading" style="text-align:center;padding:24px;color:#64748b">טוען...</div>
         <table class="doc-table hidden" id="docs-table">
@@ -750,6 +753,25 @@
 
   function downloadDoc(id) {
     window.open(`/api/admin/download/${id}?token=${adminToken}`, '_blank');
+  }
+
+  async function deleteAllDocs() {
+    const r0 = await fetch('/api/admin/documents', { headers: { 'x-admin-token': adminToken } });
+    const docs = await r0.json();
+    if (!docs || !docs.length) { alert('אין מסמכים למחיקה'); return; }
+    if (!confirm(`למחוק את כל ${docs.length} המסמכים?\n\nכל הקבצים יימחקו לצמיתות — פעולה זו אינה הפיכה.`)) return;
+
+    let errors = 0;
+    for (const d of docs) {
+      const r = await fetch(`/api/admin/documents/${d.id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': adminToken }
+      });
+      if (!r.ok) errors++;
+    }
+
+    if (errors > 0) alert(`${errors} מסמכים לא נמחקו בשל שגיאה`);
+    loadDocs();
   }
 
   async function deleteDoc(id, name) {
