@@ -634,17 +634,8 @@
       copyBtn.className = 'btn btn-sm';
       copyBtn.style.cssText = 'background:#e2e8f0;font-size:11px';
       copyBtn.textContent = '📋 העתק';
-      copyBtn.onclick = async function() {
-        try {
-          // Copy as rich HTML + plain text — so pasting in any app gives a clickable link
-          await navigator.clipboard.write([new ClipboardItem({
-            'text/html':  new Blob([`<a href="${s.link}">${s.link}</a>`], { type: 'text/html' }),
-            'text/plain': new Blob([s.link], { type: 'text/plain' }),
-          })]);
-        } catch {
-          // Fallback for browsers that don't support ClipboardItem
-          await navigator.clipboard.writeText(s.link);
-        }
+      copyBtn.onclick = function() {
+        navigator.clipboard.writeText(s.link);
         copyBtn.textContent = '✅ הועתק';
         setTimeout(() => { copyBtn.textContent = '📋 העתק'; }, 2000);
       };

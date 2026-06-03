@@ -120,11 +120,14 @@ router.post('/send/:docId', async (req, res) => {
 
     console.log(`Document ${docId}: created ${signerRows.length} signers:`, signerRows.map(s => `${s.name} (order ${s.signer_order})`));
 
+    // Build base URL from APP_URL env var or fallback to request origin
+    const baseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+
     // Return a link for EVERY signer — admin sends each link independently
     const links = signerRows.map(s => ({
       name:  s.name,
       order: s.signer_order,
-      link:  `${process.env.APP_URL}/sign.html?token=${s.token}`,
+      link:  `${baseUrl}/sign.html?token=${s.token}`,
     }));
 
     res.json({ links });
