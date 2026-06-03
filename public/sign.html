@@ -145,8 +145,10 @@
       const pageNum  = field ? field.page + 1 : 1;  // field.page is 0-indexed
 
       // iframe — native renderer (Hebrew works perfectly)
+      // Full document shown (no #page fragment) — height will be set by positionMarker()
       const iframe = document.getElementById('pdf-iframe');
-      iframe.src = `/api/sign/pdf-proxy?token=${token}#page=${pageNum}&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
+      iframe.src = `/api/sign/pdf-proxy?token=${token}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
+      iframe.style.height = '400px'; // temporary until positionMarker sets exact height
 
       document.getElementById('loading-screen').classList.add('hidden');
       document.getElementById('main-screen').classList.remove('hidden');
@@ -162,38 +164,54 @@
 
   async function positionMarker(field, pageNum) {
     try {
-      // Load PDF silently — only to get page dimensions for scale calculation
-      const pdf  = await pdfjsLib.getDocument({
+      // Load PDF silently — only for dimensions (no canvas rendering)
+      const pdf = await pdfjsLib.getDocument({
         url: `/api/sign/pdf-proxy?token=${token}`,
         cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
         cMapPacked: true,
       }).promise;
 
-      const page   = await pdf.getPage(pageNum);
-      const vp0    = page.getViewport({ scale: 1 });
+      // Get dimensions of all pages
+      const pageDims = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pg = await pdf.getPage(i);
+        pageDims.push(pg.getViewport({ scale: 1 }));
+      }
 
-      // Wait for the iframe to have a known width
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 300)); // wait for layout
 
-      const wrap   = document.getElementById('pdf-wrap');
+      const wrap    = document.getElementById('pdf-wrap');
       const iframeW = wrap.clientWidth || 820;
-      const scale  = iframeW / vp0.width;
-      const iframeH = Math.round(vp0.height * scale);
+      const scale   = iframeW / pageDims[0].width;
 
-      // Set iframe height to exactly one page
-      document.getElementById('pdf-iframe').style.height = iframeH + 'px';
+      // Chrome PDF viewer adds ~9px gap between pages
+      const PAGE_GAP = 9;
+
+      // Total iframe height = sum of all page heights + gaps
+      const totalH = pageDims.reduce((sum, vp) => sum + Math.round(vp.height * scale), 0)
+                     + PAGE_GAP * (pdf.numPages - 1);
+
+      document.getElementById('pdf-iframe').style.height = totalH + 'px';
+
+      // Y offset = sum of heights of all pages BEFORE the signature page + gaps
+      let offsetY = 0;
+      for (let i = 0; i < field.page; i++) {
+        offsetY += Math.round(pageDims[i].height * scale) + PAGE_GAP;
+      }
 
       // Place marker
       const marker = document.getElementById('field-marker');
-      marker.style.left   = (field.x      * scale) + 'px';
-      marker.style.top    = (field.y      * scale) + 'px';
+      marker.style.left   = (field.x     * scale) + 'px';
+      marker.style.top    = (offsetY + field.y * scale) + 'px';
       marker.style.width  = (field.width  * scale) + 'px';
       marker.style.height = (field.height * scale) + 'px';
       marker.style.display = 'block';
 
+      // Scroll marker into view
+      setTimeout(() => marker.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+
     } catch (e) {
       console.warn('positionMarker failed:', e);
-      // Fallback: show iframe at default 600px without marker
       document.getElementById('pdf-iframe').style.height = '600px';
     }
   }
