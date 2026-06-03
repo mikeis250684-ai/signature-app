@@ -92,11 +92,29 @@ router.get('/pdf-meta/:docId', async (req, res) => {
   }
 });
 
+// Get existing fields + signers for a document (for edit mode)
+router.get('/document-data/:docId', async (req, res) => {
+  try {
+    const docId = req.params.docId;
+    const { data: doc }     = await supabase.from('documents').select('*').eq('id', docId).single();
+    const { data: fields }  = await supabase.from('signature_fields').select('*').eq('document_id', docId).order('signer_order');
+    const { data: signers } = await supabase.from('signers').select('id,name,email,phone,signer_order').eq('document_id', docId).order('signer_order');
+    if (!doc) return res.status(404).json({ error: 'מסמך לא נמצא' });
+    res.json({ doc, fields: fields || [], signers: signers || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Save signature fields + signers, send first link
 router.post('/send/:docId', async (req, res) => {
   try {
     const { signers, fields } = req.body;
     const docId = req.params.docId;
+
+    // Clear any existing fields + signers (allows re-sending / editing)
+    await supabase.from('signature_fields').delete().eq('document_id', docId);
+    await supabase.from('signers').delete().eq('document_id', docId);
 
     // Save fields
     const fieldRows = fields.map(f => ({ ...f, document_id: docId }));

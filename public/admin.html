@@ -744,6 +744,7 @@
           ${d.status === 'completed'
             ? `<button class="btn btn-sm btn-green" onclick="downloadDoc('${d.id}')">⬇ הורד PDF</button>`
             : `<span style="font-size:12px;color:#94a3b8">ממתין לחתימה</span>`}
+          <button class="btn btn-sm" style="background:#f59e0b;color:white;border:none" onclick="editDoc('${d.id}')">✏️ ערוך</button>
           <button class="btn btn-sm" style="background:#ef4444;color:white;border:none" onclick="deleteDoc('${d.id}','${d.name}')">🗑 מחק</button>
         </td>
       </tr>
@@ -753,6 +754,73 @@
 
   function downloadDoc(id) {
     window.open(`/api/admin/download/${id}?token=${adminToken}`, '_blank');
+  }
+
+  async function editDoc(id) {
+    try {
+      // Fetch existing document data (fields + signers)
+      const r = await fetch(`/api/admin/document-data/${id}`, {
+        headers: { 'x-admin-token': adminToken }
+      });
+      if (!r.ok) { alert('שגיאה בטעינת המסמך'); return; }
+      const { doc, fields: existingFields, signers: existingSigners } = await r.json();
+
+      // Switch to "new document" tab and reset state
+      switchTab('new');
+      docId  = id;
+      fields = [];
+
+      // Show edit mode banner
+      document.getElementById('upload-success').classList.remove('hidden');
+      document.getElementById('upload-success').textContent = `✏️ עריכת מסמך: "${doc.name}"`;
+      document.getElementById('upload-error').classList.add('hidden');
+
+      // Load PDF.js for page dimensions
+      pdfDoc = await pdfjsLib.getDocument({
+        url: `/api/admin/pdf-proxy/${id}?token=${adminToken}`,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
+
+      pageDims = {};
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const pg = await pdfDoc.getPage(i);
+        const vp = pg.getViewport({ scale: 1 });
+        pageDims[i] = { width: vp.width, height: vp.height };
+      }
+
+      // Load existing fields into the fields array
+      existingFields.forEach(f => {
+        fields.push({
+          signer_order: f.signer_order,
+          page:         f.page,
+          x:            f.x,
+          y:            f.y,
+          width:        f.width,
+          height:       f.height,
+        });
+      });
+
+      // Pre-populate signers form
+      const form = document.getElementById('signers-form');
+      form.innerHTML = '';
+      const signersToLoad = existingSigners.length > 0 ? existingSigners : [{}];
+      signersToLoad.forEach(s => {
+        addSignerRow();
+        const row = form.lastElementChild;
+        if (s.name)  row.querySelector('[data-field="name"]').value  = s.name;
+        if (s.email) row.querySelector('[data-field="email"]').value = s.email;
+        if (s.phone) row.querySelector('[data-field="phone"]').value = s.phone;
+      });
+
+      // Go to step 2 and render PDF
+      currentPage = 1;
+      await renderPdfPage(1);
+      goStep(2);
+
+    } catch (e) {
+      alert('שגיאה בטעינת המסמך: ' + e.message);
+    }
   }
 
   async function deleteAllDocs() {
