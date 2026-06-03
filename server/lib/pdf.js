@@ -16,7 +16,7 @@ async function burnSignatures(pdfBytes, signatures) {
     const hebrewFontBytes = fs.readFileSync(HEBREW_FONT_PATH);
     fontBold   = await pdfDoc.embedFont(hebrewFontBytes);
     // pdf-lib renders LTR — reverse Hebrew string for correct RTL display
-    stampLabel = 'נחתם דיגיטלית'.split('').reverse().join('');
+    stampLabel = 'נחתם דיגיטלית';
   } catch (e) {
     console.warn('Hebrew font unavailable, using English fallback:', e.message);
     fontBold   = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
