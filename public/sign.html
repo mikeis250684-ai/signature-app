@@ -11,35 +11,36 @@
   body { font-family: Arial, sans-serif; background: #f1f5f9; color: #1e293b; }
   .header { background: #2563eb; color: white; padding: 16px 24px; text-align: center; }
   .header h1 { font-size: 20px; }
-  .header p { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+  .header p  { font-size: 14px; opacity: 0.85; margin-top: 4px; }
   .content { max-width: 860px; margin: 24px auto; padding: 0 16px 40px; }
   .panel { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   .badge { background: #dbeafe; color: #1d4ed8; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 12px; }
 
-  /* PDF canvas container */
-  #pdf-container { position: relative; width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #fff; }
-  #pdf-canvas    { display: block; width: 100%; }
+  /* PDF container — iframe fills it, overlay sits on top */
+  #pdf-wrap { position: relative; width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+  #pdf-iframe { display: block; width: 100%; border: none; }
 
-  /* Field marker overlay — positioned over the signature field */
+  /* Transparent overlay — pointer-events:none so clicks pass through to iframe */
+  #field-overlay {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
   #field-marker {
-    position: absolute; pointer-events: none; display: none;
+    position: absolute;
     border: 2.5px dashed #2563eb;
     background: rgba(37,99,235,0.07);
     border-radius: 3px;
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.13);
+    display: none;
   }
   #field-marker-label {
-    position: absolute; top: -22px; right: 0;
+    position: absolute; bottom: 100%; right: 0; margin-bottom: 4px;
     background: #2563eb; color: white;
     font-size: 10px; font-weight: bold;
     padding: 2px 8px; border-radius: 3px;
     white-space: nowrap;
   }
-
-  /* Page navigation */
-  #page-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; font-size: 13px; color: #64748b; }
-  #page-nav button { background: #e2e8f0; border: none; padding: 4px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  #page-nav button:disabled { opacity: 0.4; cursor: default; }
 
   .sig-area { border: 2px solid #cbd5e1; border-radius: 8px; background: white; touch-action: none; margin-top: 12px; }
   #signature-canvas { display: block; width: 100%; height: 180px; }
@@ -82,21 +83,16 @@
   <div class="hidden" id="main-screen">
     <div class="panel">
       <span class="badge" id="signer-badge">חותם</span>
-      <p style="color:#64748b;font-size:14px;margin-bottom:16px">עיין במסמך — האזור המסומן הוא מקום החתימה שלך</p>
+      <p style="color:#64748b;font-size:14px;margin-bottom:16px">עיין במסמך — האזור המסומן בכחול הוא מקום החתימה</p>
 
-      <!-- PDF rendered via pdf.js — field marker overlaid directly on the PDF -->
-      <div id="pdf-container">
-        <canvas id="pdf-canvas"></canvas>
-        <div id="field-marker">
-          <div id="field-marker-label">✍️ החתימה שלך כאן</div>
+      <!-- iframe (native renderer — Hebrew works) + transparent overlay for field marker -->
+      <div id="pdf-wrap">
+        <iframe id="pdf-iframe" src=""></iframe>
+        <div id="field-overlay">
+          <div id="field-marker">
+            <div id="field-marker-label">✍️ החתימה שלך כאן</div>
+          </div>
         </div>
-      </div>
-
-      <!-- Page navigation (shown only for multi-page PDFs) -->
-      <div id="page-nav" style="display:none">
-        <button id="btn-prev" onclick="changePage(-1)">◀ הקודם</button>
-        <span id="page-info">עמוד 1</span>
-        <button id="btn-next" onclick="changePage(1)">הבא ▶</button>
       </div>
     </div>
 
@@ -133,12 +129,7 @@
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
   const token = new URLSearchParams(window.location.search).get('token');
-  let sigPad   = null;
-  let pdfDoc   = null;
-  let totalPages = 1;
-  let currentPage = 1;
-  let sigField    = null;   // the signature field for this signer
-  let pdfScale    = 1;
+  let sigPad = null;
 
   async function init() {
     if (!token) { showError('לינק לא תקין', 'חסר קוד אימות בקישור'); return; }
@@ -150,79 +141,61 @@
       document.getElementById('header-sub').textContent = `${data.docName} — ${data.signerName}`;
       document.getElementById('signer-badge').textContent = data.signerName;
 
-      sigField = (data.fields && data.fields.length > 0) ? data.fields[0] : null;
+      const field    = data.fields && data.fields[0];
+      const pageNum  = field ? field.page + 1 : 1;  // field.page is 0-indexed
 
-      // Load PDF with pdf.js
-      pdfDoc = await pdfjsLib.getDocument({
-        url: `/api/sign/pdf-proxy?token=${token}`,
-        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-        cMapPacked: true,
-      }).promise;
-
-      totalPages = pdfDoc.numPages;
-
-      // Start on the page containing the signature field
-      currentPage = sigField ? (sigField.page + 1) : 1;
-
-      await renderPage(currentPage);
-
-      if (totalPages > 1) {
-        document.getElementById('page-nav').style.display = 'flex';
-        updatePageNav();
-      }
+      // iframe — native renderer (Hebrew works perfectly)
+      const iframe = document.getElementById('pdf-iframe');
+      iframe.src = `/api/sign/pdf-proxy?token=${token}#page=${pageNum}&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
 
       document.getElementById('loading-screen').classList.add('hidden');
       document.getElementById('main-screen').classList.remove('hidden');
       initSigPad();
+
+      // Position field marker using pdf.js just for page dimensions (no rendering)
+      if (field) positionMarker(field, pageNum);
 
     } catch (e) {
       showError('שגיאה בטעינה', e.message);
     }
   }
 
-  async function renderPage(pageNum) {
-    const page  = await pdfDoc.getPage(pageNum);
-    const vp0   = page.getViewport({ scale: 1 });
-    const container = document.getElementById('pdf-container');
-    const containerW = container.clientWidth || 820;
-    pdfScale = containerW / vp0.width;
-    const vp = page.getViewport({ scale: pdfScale });
+  async function positionMarker(field, pageNum) {
+    try {
+      // Load PDF silently — only to get page dimensions for scale calculation
+      const pdf  = await pdfjsLib.getDocument({
+        url: `/api/sign/pdf-proxy?token=${token}`,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
 
-    const canvas = document.getElementById('pdf-canvas');
-    canvas.width  = vp.width;
-    canvas.height = vp.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      const page   = await pdf.getPage(pageNum);
+      const vp0    = page.getViewport({ scale: 1 });
 
-    // Show field marker if this page contains the signature field
-    const marker = document.getElementById('field-marker');
-    if (sigField && sigField.page === pageNum - 1) {
-      marker.style.left   = (sigField.x      * pdfScale) + 'px';
-      marker.style.top    = (sigField.y      * pdfScale) + 'px';
-      marker.style.width  = (sigField.width  * pdfScale) + 'px';
-      marker.style.height = (sigField.height * pdfScale) + 'px';
+      // Wait for the iframe to have a known width
+      await new Promise(r => setTimeout(r, 300));
+
+      const wrap   = document.getElementById('pdf-wrap');
+      const iframeW = wrap.clientWidth || 820;
+      const scale  = iframeW / vp0.width;
+      const iframeH = Math.round(vp0.height * scale);
+
+      // Set iframe height to exactly one page
+      document.getElementById('pdf-iframe').style.height = iframeH + 'px';
+
+      // Place marker
+      const marker = document.getElementById('field-marker');
+      marker.style.left   = (field.x      * scale) + 'px';
+      marker.style.top    = (field.y      * scale) + 'px';
+      marker.style.width  = (field.width  * scale) + 'px';
+      marker.style.height = (field.height * scale) + 'px';
       marker.style.display = 'block';
 
-      // Scroll marker into view after a short delay
-      setTimeout(() => {
-        marker.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    } else {
-      marker.style.display = 'none';
+    } catch (e) {
+      console.warn('positionMarker failed:', e);
+      // Fallback: show iframe at default 600px without marker
+      document.getElementById('pdf-iframe').style.height = '600px';
     }
-  }
-
-  async function changePage(dir) {
-    const next = currentPage + dir;
-    if (next < 1 || next > totalPages) return;
-    currentPage = next;
-    await renderPage(currentPage);
-    updatePageNav();
-  }
-
-  function updatePageNav() {
-    document.getElementById('page-info').textContent = `עמוד ${currentPage} מתוך ${totalPages}`;
-    document.getElementById('btn-prev').disabled = currentPage <= 1;
-    document.getElementById('btn-next').disabled = currentPage >= totalPages;
   }
 
   function initSigPad() {

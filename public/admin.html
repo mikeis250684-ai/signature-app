@@ -352,7 +352,8 @@
     // iframe — native renderer for correct Hebrew display
     const iframe = document.getElementById('pdf-iframe');
     iframe.style.height = h + 'px';
-    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}#page=${pageNum}&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
+    // &_p= forces a different URL so Chrome reloads the iframe (fragment-only changes are ignored)
+    iframe.src = `/api/admin/pdf-proxy/${docId}?token=${adminToken}&_p=${pageNum}#page=${pageNum}&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
 
     // Overlay canvas — same exact pixel dimensions as the rendered PDF area
     const overlay = document.getElementById('field-overlay');
