@@ -45,15 +45,15 @@ async function burnSignatures(pdfBytes, signatures) {
       width: sig.width, height: sig.height,
     });
 
-    // ── Digital stamp ─────────────────────────────────────────────
-    const stW = Math.min(sig.width, 105);
+    // ── Digital stamp — same width as signature, directly below (no gap) ──
+    const stW = sig.width;
     const stH = 15;
     const stX = sig.x;
 
-    // Place below signature; if too close to bottom → place above
-    const stY = (pdfY - stH - 3) > 4
-      ? pdfY - stH - 3
-      : pdfY + sig.height + 3;
+    // Place directly below signature (gap=0); if too close to bottom → above
+    const stY = (pdfY - stH) > 2
+      ? pdfY - stH
+      : pdfY + sig.height;
 
     try {
       // Background

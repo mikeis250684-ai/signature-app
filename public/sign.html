@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>חתימה דיגיטלית</title>
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f1f5f9; color: #1e293b; }
@@ -32,6 +33,18 @@
   .hint { color: #64748b; font-size: 13px; margin-top: 4px; }
   .agree-row { display: flex; align-items: center; gap: 10px; margin-top: 16px; font-size: 14px; cursor: pointer; }
   .agree-row input { width: 18px; height: 18px; cursor: pointer; }
+  #field-preview-wrap { position: relative; width: 100%; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+  #field-preview-canvas { display: block; width: 100%; }
+  #field-marker {
+    position: absolute; pointer-events: none;
+    border: 2.5px dashed #2563eb; background: rgba(37,99,235,0.07);
+    border-radius: 3px;
+  }
+  #field-label {
+    position: absolute; pointer-events: none;
+    background: #2563eb; color: white;
+    font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 3px;
+  }
 </style>
 </head>
 <body>
@@ -58,6 +71,17 @@
       <span class="badge" id="signer-badge">חותם</span>
       <p style="color:#64748b;font-size:14px;margin-bottom:16px">עיין במסמך ולאחר מכן חתום בתיבה למטה</p>
       <iframe id="pdf-iframe" src=""></iframe>
+    </div>
+
+    <!-- Field location preview -->
+    <div class="panel" id="field-preview-panel" style="display:none">
+      <h3 style="margin-bottom:10px">📍 מיקום החתימה במסמך</h3>
+      <p class="hint" style="margin-bottom:10px">האזור המסומן הוא המקום שבו תוטבע חתימתך</p>
+      <div id="field-preview-wrap">
+        <canvas id="field-preview-canvas"></canvas>
+        <div id="field-marker"></div>
+        <div id="field-label">✍️ החתימה תופיע כאן</div>
+      </div>
     </div>
 
     <div class="panel">
@@ -89,6 +113,9 @@
 </div>
 
 <script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
   const token = new URLSearchParams(window.location.search).get('token');
   let sigPad = null;
 
@@ -108,8 +135,61 @@
       document.getElementById('loading-screen').classList.add('hidden');
       document.getElementById('main-screen').classList.remove('hidden');
       initSigPad();
+
+      // Show field location preview (non-blocking)
+      if (data.fields && data.fields.length > 0) {
+        showFieldPreview(data.fields[0]).catch(e => console.warn('Field preview error:', e));
+      }
     } catch (e) {
       showError('שגיאה בטעינה', e.message);
+    }
+  }
+
+  async function showFieldPreview(field) {
+    try {
+      const pdf = await pdfjsLib.getDocument({
+        url: `/api/sign/pdf-proxy?token=${token}`,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
+
+      const pageNum = (field.page || 0) + 1; // stored 0-indexed
+      const page    = await pdf.getPage(pageNum);
+      const vp0     = page.getViewport({ scale: 1 });
+
+      const wrap    = document.getElementById('field-preview-wrap');
+      const canvas  = document.getElementById('field-preview-canvas');
+      const containerW = wrap.clientWidth || 820;
+      const scale   = containerW / vp0.width;
+      const scaledVp = page.getViewport({ scale });
+
+      canvas.width  = scaledVp.width;
+      canvas.height = scaledVp.height;
+
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledVp }).promise;
+
+      // Position marker — field.y is stored as "pixels from top / PDF-scale" (screen convention)
+      const mx = field.x * scale;
+      const my = field.y * scale;
+      const mw = field.width  * scale;
+      const mh = field.height * scale;
+
+      const marker = document.getElementById('field-marker');
+      marker.style.left   = mx + 'px';
+      marker.style.top    = my + 'px';
+      marker.style.width  = mw + 'px';
+      marker.style.height = mh + 'px';
+
+      const label = document.getElementById('field-label');
+      label.style.left = mx + 'px';
+      label.style.top  = Math.max(0, my - 22) + 'px';
+
+      document.getElementById('field-preview-panel').style.display = 'block';
+
+      // Scroll the preview into view gently
+      setTimeout(() => marker.scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+    } catch (e) {
+      console.warn('showFieldPreview failed:', e);
     }
   }
 
