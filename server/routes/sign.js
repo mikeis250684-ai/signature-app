@@ -114,6 +114,18 @@ router.post('/submit', async (req, res) => {
     console.log(`Document ${signer.document_id}: ${allSigners.length} total signers, ${unsigned.length} still unsigned`);
     console.log('Unsigned:', unsigned.map(s => s.name));
 
+    // Notify admin that this specific signer signed
+    if (unsigned.length > 0) {
+      await sendEmail(
+        process.env.ADMIN_EMAIL,
+        `✍️ ${signer.name} חתם על "${signer.documents.name}"`,
+        `<div dir="rtl" style="font-family:Arial;font-size:16px">
+          <p><strong>${signer.name}</strong> חתם על המסמך <strong>"${signer.documents.name}"</strong>.</p>
+          <p>נותרו ${unsigned.length} חותמים נוספים.</p>
+        </div>`
+      );
+    }
+
     if (unsigned.length === 0) {
       // Every signer is done — finalize the PDF
       await finalizePdf(signer.document_id);

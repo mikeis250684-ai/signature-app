@@ -322,25 +322,33 @@
 
     docId = data.docId;
     fields = [];
-    succ.textContent = `✅ "${file.name}" הועלה`;
+    succ.textContent = `✅ "${file.name}" הועלה — טוען תצוגה מקדימה...`;
 
-    // Load PDF.js silently — just for page dimensions
-    pdfDoc = await pdfjsLib.getDocument({
-      url: `/api/admin/pdf-proxy/${docId}?token=${adminToken}`,
-      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-      cMapPacked: true,
-    }).promise;
+    try {
+      // Load PDF.js silently — just for page dimensions
+      pdfDoc = await pdfjsLib.getDocument({
+        url: `/api/admin/pdf-proxy/${docId}?token=${adminToken}`,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
 
-    pageDims = {};
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const pg = await pdfDoc.getPage(i);
-      const vp = pg.getViewport({ scale: 1 });
-      pageDims[i] = { width: vp.width, height: vp.height };
+      pageDims = {};
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const pg = await pdfDoc.getPage(i);
+        const vp = pg.getViewport({ scale: 1 });
+        pageDims[i] = { width: vp.width, height: vp.height };
+      }
+
+      currentPage = 1;
+      await renderPdfPage(1);
+      goStep(2);
+      succ.textContent = `✅ "${file.name}" הועלה`;
+    } catch (pdfErr) {
+      console.error('PDF load error:', pdfErr);
+      err.textContent = `שגיאה בטעינת ה-PDF: ${pdfErr.message || pdfErr}`;
+      err.classList.remove('hidden');
+      succ.classList.add('hidden');
     }
-
-    currentPage = 1;
-    await renderPdfPage(1);
-    goStep(2);
   }
 
   /* ── Render PDF page ─────────────────────────────────────────────
