@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const https = require('https');
+const http  = require('http');
 
 const adminRoutes = require('./routes/admin');
 const signRoutes = require('./routes/sign');
@@ -23,9 +25,15 @@ app.listen(PORT, () => {
   // Self-ping every 14 minutes to prevent Render.com free tier from sleeping
   if (process.env.APP_URL) {
     setInterval(() => {
-      fetch(`${process.env.APP_URL}/health`)
-        .then(() => console.log('Keep-alive ping sent'))
-        .catch(err => console.warn('Keep-alive ping failed:', err.message));
+      try {
+        const url = new URL(`${process.env.APP_URL}/health`);
+        const lib = url.protocol === 'https:' ? https : http;
+        lib.get(url.href, res => {
+          console.log('Keep-alive ping OK:', res.statusCode);
+        }).on('error', err => console.warn('Keep-alive ping failed:', err.message));
+      } catch (e) {
+        console.warn('Keep-alive error:', e.message);
+      }
     }, 14 * 60 * 1000);
   }
 });
