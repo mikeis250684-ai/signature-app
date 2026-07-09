@@ -17,4 +17,15 @@ app.use('/api/sign', signRoutes);
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+
+  // Self-ping every 14 minutes to prevent Render.com free tier from sleeping
+  if (process.env.APP_URL) {
+    setInterval(() => {
+      fetch(`${process.env.APP_URL}/health`)
+        .then(() => console.log('Keep-alive ping sent'))
+        .catch(err => console.warn('Keep-alive ping failed:', err.message));
+    }, 14 * 60 * 1000);
+  }
+});
