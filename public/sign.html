@@ -233,7 +233,7 @@
     const canvas = document.getElementById('signature-canvas');
     canvas.width = canvas.offsetWidth || 700;
     canvas.height = 180;
-    sigPad = new SignaturePad(canvas, { backgroundColor: 'rgb(255,255,255)', penColor: '#1e293b' });
+    sigPad = new SignaturePad(canvas, { backgroundColor: 'rgba(0,0,0,0)', penColor: '#1e293b' });
   }
 
   function clearSig() { sigPad.clear(); }
