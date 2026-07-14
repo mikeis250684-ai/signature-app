@@ -16,9 +16,11 @@
   .panel { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   .badge { background: #dbeafe; color: #1d4ed8; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 12px; }
 
-  /* PDF container — iframe fills it, overlay sits on top */
+  /* PDF container — per-page iframes stacked with a controlled gap, overlay sits on top */
   #pdf-wrap { position: relative; width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
-  #pdf-iframe { display: block; width: 100%; border: none; }
+  #pdf-pages { position: relative; width: 100%; }
+  .pdf-page { position: relative; width: 100%; overflow: hidden; }
+  .pdf-page iframe { display: block; width: 100%; height: 100%; border: none; pointer-events: none; }
 
   /* Transparent overlay — pointer-events:none so clicks pass through to iframe */
   #field-overlay {
@@ -84,11 +86,13 @@
       <span class="badge" id="signer-badge">חותם</span>
       <p style="color:#64748b;font-size:14px;margin-bottom:16px">עיין במסמך — האזור המסומן בכחול הוא מקום החתימה</p>
 
-      <!-- iframe (native renderer — Hebrew works) + transparent overlay for field marker -->
+      <!-- per-page iframes (native renderer — Hebrew works) + transparent overlay for field markers -->
       <div id="pdf-wrap">
-        <iframe id="pdf-iframe" src=""></iframe>
+        <div id="pdf-pages">
+          <!-- one .pdf-page div per PDF page, injected by buildPdfView() -->
+        </div>
         <div id="field-overlay">
-          <!-- field markers injected dynamically by positionMarkers() -->
+          <!-- field markers injected dynamically by buildPdfView() -->
         </div>
       </div>
     </div>
@@ -140,24 +144,28 @@
 
       const fields = data.fields || [];
 
-      // iframe — native renderer (Hebrew works perfectly)
-      const iframe = document.getElementById('pdf-iframe');
-      iframe.src = `/api/sign/pdf-proxy?token=${token}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
-      iframe.style.height = '400px'; // temporary until positionMarkers sets exact height
-
       document.getElementById('loading-screen').classList.add('hidden');
       document.getElementById('main-screen').classList.remove('hidden');
       initSigPad();
 
-      // Position ALL field markers
-      if (fields.length > 0) positionMarkers(fields);
+      await buildPdfView(fields);
 
     } catch (e) {
       showError('שגיאה בטעינה', e.message);
     }
   }
 
-  async function positionMarkers(fields) {
+  /* ── Build the PDF view: one real iframe PER PAGE, stacked with a gap WE control.
+     This replaces the old "one continuous iframe + guess the native page gap" approach,
+     which only lined up correctly on page 1 — the guessed gap error accumulated on
+     every page after that. Rendering one page per iframe means we know each page's
+     exact pixel height ourselves, so field markers land in the right place on every page. ── */
+  async function buildPdfView(fields) {
+    const wrap          = document.getElementById('pdf-wrap');
+    const pagesContainer = document.getElementById('pdf-pages');
+    const overlay        = document.getElementById('field-overlay');
+    const GAP = 10; // our own controlled gap between pages (plain CSS margin, not a guess)
+
     try {
       // Load PDF silently — only for page dimensions (no canvas rendering)
       const pdf = await pdfjsLib.getDocument({
@@ -172,33 +180,43 @@
         pageDims.push(pg.getViewport({ scale: 1 }));
       }
 
-      await new Promise(r => setTimeout(r, 300)); // wait for layout
-
-      const wrap    = document.getElementById('pdf-wrap');
       const iframeW = wrap.clientWidth || 820;
-      const scale   = iframeW / pageDims[0].width;
-      const PAGE_GAP = 9; // Chrome PDF viewer gap between pages
 
-      // Set iframe height = full document height (no internal scroll)
-      const totalH = pageDims.reduce((sum, vp) => sum + Math.round(vp.height * scale), 0)
-                     + PAGE_GAP * (pdf.numPages - 1);
-      document.getElementById('pdf-iframe').style.height = totalH + 'px';
-
-      // Compute Y offset for each page (cumulative heights + gaps)
+      // Build one iframe per page, each pinned to exactly that page — no native
+      // continuous-scroll layout involved, so no gap to guess.
+      pagesContainer.innerHTML = '';
       const pageOffsets = [];
+      const pageScales  = [];
       let cumY = 0;
-      for (let i = 0; i < pageDims.length; i++) {
-        pageOffsets.push(cumY);
-        cumY += Math.round(pageDims[i].height * scale) + PAGE_GAP;
-      }
 
-      // Create a marker div for EACH field
-      const overlay = document.getElementById('field-overlay');
+      pageDims.forEach((vp, i) => {
+        const scale = iframeW / vp.width;
+        const h     = Math.round(vp.height * scale);
+        pageScales.push(scale);
+        pageOffsets.push(cumY);
+
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'pdf-page';
+        pageDiv.style.height = h + 'px';
+        pageDiv.style.marginBottom = (i < pageDims.length - 1 ? GAP : 0) + 'px';
+
+        const iframe = document.createElement('iframe');
+        iframe.src = `/api/sign/pdf-proxy?token=${token}#page=${i + 1}&toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
+        pageDiv.appendChild(iframe);
+        pagesContainer.appendChild(pageDiv);
+
+        cumY += h + GAP;
+      });
+
+      overlay.style.height = (cumY - GAP) + 'px';
+
+      // Create a marker div for EACH field, using that field's OWN page scale
       overlay.innerHTML = '';
       let firstMarker = null;
 
       fields.forEach((field, idx) => {
-        const offsetY = pageOffsets[field.page] || 0;
+        const scale    = pageScales[field.page]  || (iframeW / 595);
+        const offsetY  = pageOffsets[field.page] || 0;
 
         const marker = document.createElement('div');
         marker.className = 'field-marker';
@@ -224,8 +242,15 @@
       }
 
     } catch (e) {
-      console.warn('positionMarkers failed:', e);
-      document.getElementById('pdf-iframe').style.height = '600px';
+      console.warn('buildPdfView failed, falling back to single continuous iframe:', e);
+      pagesContainer.innerHTML = '';
+      const pageDiv = document.createElement('div');
+      pageDiv.className = 'pdf-page';
+      pageDiv.style.height = '800px';
+      const iframe = document.createElement('iframe');
+      iframe.src = `/api/sign/pdf-proxy?token=${token}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
+      pageDiv.appendChild(iframe);
+      pagesContainer.appendChild(pageDiv);
     }
   }
 
