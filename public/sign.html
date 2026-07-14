@@ -256,9 +256,22 @@
 
   function initSigPad() {
     const canvas = document.getElementById('signature-canvas');
-    canvas.width = canvas.offsetWidth || 700;
-    canvas.height = 180;
-    sigPad = new SignaturePad(canvas, { backgroundColor: 'rgba(0,0,0,0)', penColor: '#1e293b' });
+    // Match the canvas's internal pixel buffer to the screen's device pixel ratio —
+    // without this, phones/retina screens render the signature at a lower resolution
+    // than they display it at, which is why it looked blurry.
+    const ratio      = Math.max(window.devicePixelRatio || 1, 1);
+    const cssWidth   = canvas.offsetWidth || 700;
+    const cssHeight  = 180;
+    canvas.width  = cssWidth  * ratio;
+    canvas.height = cssHeight * ratio;
+    canvas.getContext('2d').scale(ratio, ratio);
+
+    sigPad = new SignaturePad(canvas, {
+      backgroundColor: 'rgba(0,0,0,0)',
+      penColor: '#000000',
+      minWidth: 1.5,
+      maxWidth: 3.5,
+    });
   }
 
   function clearSig() { sigPad.clear(); }
